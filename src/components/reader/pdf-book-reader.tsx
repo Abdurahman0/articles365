@@ -296,7 +296,8 @@ export function PdfBookReader({
     setFlip(e.data);
     renderWindow(Math.min(e.data + 1, pageCount || 1));
     setTimeout(centerContent, 760);
-  }, [renderWindow, pageCount, centerContent]);
+    setTimeout(softenAll, 40); // keep upcoming flips (incl. covers) soft
+  }, [renderWindow, pageCount, centerContent, softenAll]);
 
   useEffect(() => {
     if (phase !== "ready") return;
@@ -309,8 +310,9 @@ export function PdfBookReader({
       if (typeof i === "number") setFlip(i);
     } catch {}
   }, []);
-  const next = useCallback(() => { try { softenAll(); bookRef.current?.pageFlip().flipNext(); setTimeout(syncFlip, 780); } catch {} }, [syncFlip, softenAll]);
-  const prev = useCallback(() => { try { softenAll(); bookRef.current?.pageFlip().flipPrev(); setTimeout(syncFlip, 780); } catch {} }, [syncFlip, softenAll]);
+  const syncSoon = useCallback(() => { [760, 1000, 1300].forEach((t) => setTimeout(syncFlip, t)); }, [syncFlip]);
+  const next = useCallback(() => { try { bookRef.current?.pageFlip().flipNext(); syncSoon(); } catch {} }, [syncSoon]);
+  const prev = useCallback(() => { try { bookRef.current?.pageFlip().flipPrev(); syncSoon(); } catch {} }, [syncSoon]);
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
       if (e.key === "ArrowRight") next();
@@ -343,7 +345,6 @@ export function PdfBookReader({
   // ---- pointer: pan when zoomed (blank areas); text selects freely ------
   const onDownCapture = (e: React.PointerEvent) => {
     const target = e.target as HTMLElement;
-    softenAll(); // keep covers soft for drag-flips too
     // when zoomed (and not highlighting), drag to pan
     if (zoomRef.current > 1 && !hlModeRef.current && stageRef.current && !target.closest(".textLayer span")) {
       e.stopPropagation();
