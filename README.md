@@ -1,36 +1,84 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Articles365 — 365 Magazines
 
-## Getting Started
+Himoyalangan elektron kitoblar veb-platformasi **frontend**i. Foydalanuvchi
+tizimga kiradi va faqat o‘ziga ruxsat berilgan kitoblarni **flip-through PDF**
+o‘quvchi orqali o‘qiydi. Real backendga ulangan.
 
-First, run the development server:
+Stack: **Next.js 16 · TypeScript · Tailwind v4 · react-pageflip · pdf.js**.
+
+## Ishga tushirish
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+npm run dev      # http://localhost:3000
+npm run build
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Backendga ulanish
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Barcha so‘rovlar `src/app/bff/[...path]/route.ts` proksisi orqali ketadi
+(CORS yo‘q, ngrok warning header avtomatik qo‘shiladi, base URL serverda).
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+`.env.local` da API bazasini ko‘rsating (ngrok URL o‘zgaruvchan — yangilab turing):
 
-## Learn More
+```
+API_BASE=https://<ngrok>.ngrok-free.app/api/v1
+```
 
-To learn more about Next.js, take a look at the following resources:
+Klient `/bff/*` ga so‘rov yuboradi → proksi `API_BASE/*` ga uzatadi.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Demo kirish
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+- O‘quvchi: `demo@articles365.local` / `demo12345`
+- Ma’mur: `admin@articles365.local` / `ChangeMe_123!`
+- Login formasidagi «Демо билан тўлдириш» tugmasi
 
-## Deploy on Vercel
+## Ulangan endpointlar
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+| Sahifa | Endpoint |
+|--------|----------|
+| Login | `POST /auth/login`, `GET /auth/me`, `POST /auth/refresh`, `POST /auth/logout` |
+| Kutubxona `/library` | `GET /library` |
+| O‘quvchi `/read/[id]` | `GET /reader/books/{id}/manifest` → `GET …/content?token=` (PDF) |
+| — qidiruv/progress | `GET …/search`, `GET/PUT …/progress` |
+| — xatcho‘p/izoh | `GET/POST/DELETE /books/{id}/bookmarks`, `…/notes` (+ PATCH) |
+| Akkaunt `/account` | `GET /sessions`, `DELETE /sessions/{id}` |
+| Ma’mur `/admin` | `GET /admin/users`, `/admin/books`, block/unblock, `POST /admin/access` |
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## O‘quvchi (PDF flip)
+
+- `manifest` → `page_count`, `toc`, `last_page`, va qisqa muddatli `content_token`.
+- `content?token=` → PDF baytlari (proksi orqali, `Authorization` bilan). pdf.js
+  hujjatga yuklaydi.
+- react-pageflip: har PDF sahifasi **lazy** ravishda canvasga render qilinadi
+  (joriy ±2 sahifa; uzoqlari xotiradan tozalanadi). Muqovalar qattiq.
+- TOC / qidiruv / xatcho‘p → sahifaga sakraydi. Progress har varaqda `PUT`.
+- pdf.js worker: `public/pdf.worker.min.mjs` (pdfjs-dist bilan bir versiya).
+
+## Kontent himoyasi (`src/components/SecurityGuard.tsx`, root layoutga ulangan)
+
+- Matn tanlash + `copy`/`cut` butun saytda o‘chirilgan (forma maydonlaridan tashqari).
+- O‘ng tugma menyusi ko‘rsatilmaydi.
+- Bloklangan: `F12`, `Ctrl/Cmd+Shift+I/J/C/K`, `Ctrl/Cmd+U/S/P`.
+- Fayl ochiq URL orqali berilmaydi — content qisqa muddatli token + auth bilan.
+
+> JS bilan DevTools/OS-skreenshotni to‘liq to‘sib bo‘lmaydi — bu to‘siqni oshiradi.
+> Asosiy himoya serverda (faylni bermaslik + huquq tekshiruvi).
+
+## Tuzilma
+
+```
+src/
+  app/
+    login/                      kirish
+    (shell)/ library/ account/ admin/
+    read/[slug]/                PDF flip o‘quvchi (id = book_id)
+    bff/[...path]/route.ts      backend proksi
+  components/
+    AppHeader, AuthGuard, SecurityGuard, Logo
+    reader/ PdfFlipReader, ReaderToolbar, SidePanel
+  lib/
+    api.ts                      backend klient (token, refresh, endpointlar)
+    auth.tsx                    AuthProvider (login/me/logout)
+    reader-store.ts             o‘qish rejimi (localStorage — mahalliy afzallik)
+```
