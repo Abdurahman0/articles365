@@ -194,7 +194,19 @@ export function PdfBookReader({
     return () => { clearTimeout(t); cleanup(); };
   }, [phase, pageCount]);
 
-  const handleInit = useCallback(() => renderWindow(1), [renderWindow]);
+  const handleInit = useCallback(() => {
+    renderWindow(1);
+    // showCover forces the cover pages to "hard" — reset to soft so they curl
+    try {
+      const api = bookRef.current?.pageFlip() as unknown as {
+        getPageCollection?: () => { getPages?: () => Array<{ setDensity?: (d: string) => void; setDrawingDensity?: (d: string) => void }> };
+      };
+      api?.getPageCollection?.().getPages?.().forEach((pg) => {
+        pg.setDensity?.("soft");
+        pg.setDrawingDensity?.("soft");
+      });
+    } catch {}
+  }, [renderWindow]);
   const registerCanvas = useCallback((p: number, el: HTMLCanvasElement | null) => {
     if (el) canvases.current.set(p, el); else canvases.current.delete(p);
   }, []);
@@ -427,7 +439,7 @@ const BookPages = memo(function BookPages({ leaves, flipRef, onFlip, onInit, reg
         minWidth={300} maxWidth={780} minHeight={387} maxHeight={1010}
         startPage={0} startZIndex={0} autoSize={false}
         drawShadow flippingTime={700} usePortrait={false} maxShadowOpacity={0.5}
-        showCover={false} mobileScrollSupport={false}
+        showCover mobileScrollSupport={false}
         clickEventForward={false} useMouseEvents swipeDistance={30}
         showPageCorners disableFlipByClick
         style={{}} className="flip-book" onFlip={onFlip} onInit={onInit}
