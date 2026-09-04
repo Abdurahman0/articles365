@@ -49,7 +49,7 @@ export function PdfBookReader({
   const [pageCount, setPageCount] = useState(0);
   const [flip, setFlip] = useState(0);
   const [fs, setFs] = useState(false);
-  const [zoom, setZoom] = useState(1);
+  const [zoom, setZoom] = useState(1.5);
 
   const [hlMode, setHlMode] = useState(false);
   const [hlColor, setHlColor] = useState<HlColor>("yellow");
