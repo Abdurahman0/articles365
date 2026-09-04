@@ -47,10 +47,10 @@ const xmlEsc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").rep
 const watermarkUrl = (text: string) => {
   const t = xmlEsc(text);
   const svg =
-    `<svg xmlns='http://www.w3.org/2000/svg' width='300' height='190'>` +
-    `<text x='150' y='104' transform='rotate(-27 150 95)' text-anchor='middle' ` +
-    `fill='#8a8a8a' fill-opacity='0.16' font-family='Arial, Helvetica, sans-serif' ` +
-    `font-size='21' font-weight='700'>${t}</text></svg>`;
+    `<svg xmlns='http://www.w3.org/2000/svg' width='260' height='165'>` +
+    `<text x='130' y='92' transform='rotate(-27 130 82)' text-anchor='middle' ` +
+    `fill='#6f6f6f' fill-opacity='0.34' font-family='Arial, Helvetica, sans-serif' ` +
+    `font-size='24' font-weight='800'>${t}</text></svg>`;
   return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
 };
 
