@@ -427,7 +427,7 @@ const BookPages = memo(function BookPages({ leaves, flipRef, onFlip, onInit, reg
         width={520} height={672} size="stretch"
         minWidth={300} maxWidth={780} minHeight={387} maxHeight={1010}
         startPage={0} startZIndex={0} autoSize={false}
-        drawShadow flippingTime={700} usePortrait maxShadowOpacity={0.5}
+        drawShadow flippingTime={700} usePortrait={false} maxShadowOpacity={0.5}
         showCover={false} mobileScrollSupport={false}
         clickEventForward={false} useMouseEvents swipeDistance={30}
         showPageCorners disableFlipByClick
