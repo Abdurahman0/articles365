@@ -118,12 +118,23 @@ export function PdfBookReader({
     let cancelled = false;
     (async () => {
       try {
-        const t = pdfjsLib.getDocument({
-          url: pdfUrl,
-          disableAutoFetch: true, // fetch only the pages we open (range requests)
-          disableStream: false,
-          rangeChunkSize: 262144,
-        });
+        // load the whole file once and keep it in Cache Storage, so reopening
+        // the book never re-downloads the 10 MB PDF (instant on later visits).
+        let data: ArrayBuffer | undefined;
+        try {
+          const cache = await caches.open("a365-pdf-v1");
+          const hit = await cache.match(pdfUrl);
+          if (hit) {
+            data = await hit.arrayBuffer();
+          } else {
+            const resp = await fetch(pdfUrl);
+            if (resp.ok) { await cache.put(pdfUrl, resp.clone()); data = await resp.arrayBuffer(); }
+          }
+        } catch { /* Cache API blocked (e.g. plain http) → fall back to URL */ }
+
+        const t = data
+          ? pdfjsLib.getDocument({ data })
+          : pdfjsLib.getDocument({ url: pdfUrl, disableAutoFetch: true, disableStream: false, rangeChunkSize: 262144 });
         task.current = t;
         const doc = await t.promise;
         if (cancelled) { t.destroy(); return; }
@@ -145,6 +156,7 @@ export function PdfBookReader({
     const canvas = canvases.current.get(p);
     if (!doc || !canvas || renderedSet.current.has(p)) return;
     renderedSet.current.add(p);
+    const imgKey = `${location.origin}/__pdfimg-v1/${encodeURIComponent(storageKey)}/${p}-${RENDER_W}`;
     try {
       const page = await doc.getPage(p);
       const base = page.getViewport({ scale: 1 });
@@ -153,10 +165,29 @@ export function PdfBookReader({
       canvas.height = Math.floor(vp.height);
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
-      await page.render({ canvas, canvasContext: ctx, viewport: vp }).promise;
+      // fast path: paint a previously cached bitmap (no re-rasterizing the PDF)
+      let painted = false;
+      try {
+        const cache = await caches.open("a365-img-v1");
+        const hit = await cache.match(imgKey);
+        if (hit) {
+          const bmp = await createImageBitmap(await hit.blob());
+          ctx.drawImage(bmp, 0, 0, canvas.width, canvas.height);
+          bmp.close?.();
+          painted = true;
+        }
+      } catch { /* no cache / no createImageBitmap → render below */ }
+      if (!painted) {
+        await page.render({ canvas, canvasContext: ctx, viewport: vp }).promise;
+        // stash the rendered page so the next open paints instantly
+        try {
+          const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, "image/jpeg", 0.82));
+          if (blob) { const cache = await caches.open("a365-img-v1"); await cache.put(imgKey, new Response(blob)); }
+        } catch {}
+      }
     } catch { renderedSet.current.delete(p); }
     renderTextLayer(p);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [storageKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // selectable text overlay via pdf.js TextLayer (rebuilt on resize)
   const renderTextLayer = useCallback(async (p: number) => {
@@ -189,10 +220,19 @@ export function PdfBookReader({
     for (let p = from; p <= to; p++) renderPage(p);
   }, [pageCount, renderPage]);
 
+  // pre-render every page (sequentially, in the background) so flipping never
+  // shows a blank white page while the target canvas rasterizes.
+  const renderAll = useCallback(async () => {
+    const n = pdfDoc.current?.numPages ?? 0;
+    for (let p = 1; p <= n; p++) await renderPage(p);
+  }, [renderPage]);
+
   useEffect(() => {
     if (phase !== "ready") return;
     renderWindow(1);
-  }, [phase, renderWindow]);
+    const t = setTimeout(renderAll, 400); // backup in case the flipbook onInit is missed
+    return () => clearTimeout(t);
+  }, [phase, renderWindow, renderAll]);
 
   useEffect(() => {
     if (phase !== "ready") return;
@@ -245,7 +285,11 @@ export function PdfBookReader({
     } catch {}
   }, []);
 
-  const handleInit = useCallback(() => { renderWindow(1); softenAll(); }, [renderWindow, softenAll]);
+  const handleInit = useCallback(() => {
+    renderWindow(1);            // current spread first (fast first paint)
+    softenAll();
+    setTimeout(renderAll, 150); // then fill the rest in the background → no white flash on flip
+  }, [renderWindow, softenAll, renderAll]);
   const registerCanvas = useCallback((p: number, el: HTMLCanvasElement | null) => {
     if (el) {
       // a fresh canvas (e.g. after an orientation remount) is blank → re-render it
