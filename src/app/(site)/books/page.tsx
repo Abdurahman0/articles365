@@ -39,7 +39,6 @@ export default function BooksPage() {
           <p className="mt-4 max-w-xl text-[15px] leading-relaxed text-foreground/80">{book.description}</p>
           <div className="mt-7 flex flex-wrap gap-3">
             <Button asChild size="lg"><Link href={`/reader/${book.id}`}><BookOpen className="size-4" /> Read the issue</Link></Button>
-            <Button asChild size="lg" variant="outline"><Link href="/login">Sign in</Link></Button>
           </div>
           <div className="mt-5 flex items-center gap-2 text-xs text-muted-foreground">
             <Lock className="size-3.5 text-primary" /> Read inside the protected flip-book reader — no download.
