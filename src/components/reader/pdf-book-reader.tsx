@@ -330,8 +330,10 @@ export function PdfBookReader({
   // (→ label + canPrev/canNext) never goes stale, whatever the flip speed.
   // setFlip with an unchanged value is a no-op, so this adds no re-render churn.
   const pollFlip = useCallback(() => { [120, 360, 720, 1050, 1450].forEach((t) => setTimeout(syncFlip, t)); }, [syncFlip]);
-  const next = useCallback(() => { try { bookRef.current?.pageFlip().flipNext(); pollFlip(); } catch {} }, [pollFlip]);
-  const prev = useCallback(() => { try { bookRef.current?.pageFlip().flipPrev(); pollFlip(); } catch {} }, [pollFlip]);
+  // soften synchronously BEFORE flipping: start() reads density on invoke and
+  // forces the cover to "hard" if it mismatches its neighbor. Soft==soft = curl.
+  const next = useCallback(() => { try { softenAll(); bookRef.current?.pageFlip().flipNext(); pollFlip(); } catch {} }, [pollFlip, softenAll]);
+  const prev = useCallback(() => { try { softenAll(); bookRef.current?.pageFlip().flipPrev(); pollFlip(); } catch {} }, [pollFlip, softenAll]);
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
       if (e.key === "ArrowRight") next();
@@ -373,6 +375,9 @@ export function PdfBookReader({
       e.stopPropagation();
       pan.current = { x: e.clientX, y: e.clientY, sl: stageRef.current.scrollLeft, st: stageRef.current.scrollTop, active: true };
       stageRef.current.setPointerCapture?.(e.pointerId);
+    } else if (!hlModeRef.current) {
+      // drag-to-flip mode: soften first so a dragged cover-open curls like a page
+      softenAll();
     }
   };
   const onMoveCapture = (e: React.PointerEvent) => {
