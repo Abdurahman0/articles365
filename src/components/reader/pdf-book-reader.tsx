@@ -34,7 +34,7 @@ const HL_DOT: Record<HlColor, string> = {
   yellow: "bg-yellow-400", green: "bg-emerald-400", pink: "bg-pink-400", blue: "bg-blue-400",
 };
 
-const RENDER_W = 1500;
+const RENDER_W = 1150;
 const ZOOM_MIN = 1, ZOOM_MAX = 3, ZOOM_STEP = 0.5;
 let uidc = 0;
 const uid = () => "h" + Date.now().toString(36) + (uidc++);
@@ -87,7 +87,12 @@ export function PdfBookReader({
     let cancelled = false;
     (async () => {
       try {
-        const t = pdfjsLib.getDocument({ url: pdfUrl });
+        const t = pdfjsLib.getDocument({
+          url: pdfUrl,
+          disableAutoFetch: true, // fetch only the pages we open (range requests)
+          disableStream: false,
+          rangeChunkSize: 262144,
+        });
         task.current = t;
         const doc = await t.promise;
         if (cancelled) { t.destroy(); return; }
@@ -146,24 +151,48 @@ export function PdfBookReader({
     } catch {}
   }, []);
 
-  const renderAll = useCallback(() => {
-    for (let p = 1; p <= pageCount; p++) renderPage(p);
+  // render only the current spread (± prefetch), on demand
+  const renderWindow = useCallback((center: number) => {
+    const from = Math.max(1, center - 1);
+    const to = Math.min(pageCount, center + 2);
+    for (let p = from; p <= to; p++) renderPage(p);
   }, [pageCount, renderPage]);
 
   useEffect(() => {
     if (phase !== "ready") return;
-    let tmr: ReturnType<typeof setTimeout>;
-    const onR = () => { clearTimeout(tmr); tmr = setTimeout(() => { for (let p = 1; p <= pageCount; p++) renderTextLayer(p); }, 200); };
-    window.addEventListener("resize", onR);
-    return () => { clearTimeout(tmr); window.removeEventListener("resize", onR); };
-  }, [phase, pageCount, renderTextLayer]);
+    renderWindow(1);
+  }, [phase, renderWindow]);
+
   useEffect(() => {
     if (phase !== "ready") return;
-    const t = setTimeout(renderAll, 200);
-    return () => clearTimeout(t);
-  }, [phase, renderAll]);
+    let tmr: ReturnType<typeof setTimeout>;
+    const onR = () => { clearTimeout(tmr); tmr = setTimeout(() => { renderedSet.current.forEach((p) => renderTextLayer(p)); }, 200); };
+    window.addEventListener("resize", onR);
+    return () => { clearTimeout(tmr); window.removeEventListener("resize", onR); };
+  }, [phase, renderTextLayer]);
 
-  const handleInit = useCallback(() => renderAll(), [renderAll]);
+  // Block page-flip's drag while highlighting or zoomed (it listens on an
+  // ancestor, so we stop the event at the page — flip off, selection/pan stay).
+  useEffect(() => {
+    if (phase !== "ready") return;
+    const stop = (e: Event) => {
+      if (hlModeRef.current || zoomRef.current > 1) e.stopPropagation();
+    };
+    const evs = ["mousedown", "mousemove", "mouseup", "touchstart", "touchmove", "touchend"] as const;
+    const attach = () => {
+      const pages = Array.from(document.querySelectorAll<HTMLElement>(".flip-book .page"));
+      pages.forEach((p) => evs.forEach((ev) => p.addEventListener(ev, stop)));
+      return pages;
+    };
+    const t = setTimeout(() => {
+      const pages = attach();
+      cleanup = () => pages.forEach((p) => evs.forEach((ev) => p.removeEventListener(ev, stop)));
+    }, 300);
+    let cleanup = () => {};
+    return () => { clearTimeout(t); cleanup(); };
+  }, [phase, pageCount]);
+
+  const handleInit = useCallback(() => renderWindow(1), [renderWindow]);
   const registerCanvas = useCallback((p: number, el: HTMLCanvasElement | null) => {
     if (el) canvases.current.set(p, el); else canvases.current.delete(p);
   }, []);
@@ -216,7 +245,10 @@ export function PdfBookReader({
   const clearAll = () => { setHighlights({}); save({}); };
 
   // ---- flip / zoom ------------------------------------------------------
-  const onFlip = useCallback((e: { data: number }) => setFlip(e.data), []);
+  const onFlip = useCallback((e: { data: number }) => {
+    setFlip(e.data);
+    renderWindow(Math.min(e.data + 1, pageCount || 1));
+  }, [renderWindow, pageCount]);
   const next = useCallback(() => { try { bookRef.current?.pageFlip().flipNext(); } catch {} }, []);
   const prev = useCallback(() => { try { bookRef.current?.pageFlip().flipPrev(); } catch {} }, []);
   useEffect(() => {

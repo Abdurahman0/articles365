@@ -346,15 +346,11 @@ mark[data-hl="pink"]   { background: rgba(200, 90, 130, 0.36); }
   user-select: none;
   pointer-events: none;
 }
-/* highlighter on → text becomes selectable, flip is disabled */
+/* highlighter on → text becomes selectable (flip is blocked in JS) */
 .hl .textLayer :is(span, br) {
   -webkit-user-select: text;
   user-select: text;
   pointer-events: auto;
-}
-.hl .flip-book,
-.zoomed .flip-book {
-  pointer-events: none;
 }
 .textLayer > :not(.markedContent) {
   --font-height: 0;
