@@ -194,9 +194,9 @@ export function PdfBookReader({
     return () => { clearTimeout(t); cleanup(); };
   }, [phase, pageCount]);
 
-  const handleInit = useCallback(() => {
-    renderWindow(1);
-    // showCover forces the cover pages to "hard" — reset to soft so they curl
+  // showCover forces the cover pages to "hard" — keep every page soft so they
+  // all curl the same. Re-applied before each flip since the lib re-sets it.
+  const softenAll = useCallback(() => {
     try {
       const api = bookRef.current?.pageFlip() as unknown as {
         getPageCollection?: () => { getPages?: () => Array<{ setDensity?: (d: string) => void; setDrawingDensity?: (d: string) => void }> };
@@ -206,7 +206,9 @@ export function PdfBookReader({
         pg.setDrawingDensity?.("soft");
       });
     } catch {}
-  }, [renderWindow]);
+  }, []);
+
+  const handleInit = useCallback(() => { renderWindow(1); softenAll(); }, [renderWindow, softenAll]);
   const registerCanvas = useCallback((p: number, el: HTMLCanvasElement | null) => {
     if (el) canvases.current.set(p, el); else canvases.current.delete(p);
   }, []);
@@ -307,8 +309,8 @@ export function PdfBookReader({
       if (typeof i === "number") setFlip(i);
     } catch {}
   }, []);
-  const next = useCallback(() => { try { bookRef.current?.pageFlip().flipNext(); setTimeout(syncFlip, 780); } catch {} }, [syncFlip]);
-  const prev = useCallback(() => { try { bookRef.current?.pageFlip().flipPrev(); setTimeout(syncFlip, 780); } catch {} }, [syncFlip]);
+  const next = useCallback(() => { try { softenAll(); bookRef.current?.pageFlip().flipNext(); setTimeout(syncFlip, 780); } catch {} }, [syncFlip, softenAll]);
+  const prev = useCallback(() => { try { softenAll(); bookRef.current?.pageFlip().flipPrev(); setTimeout(syncFlip, 780); } catch {} }, [syncFlip, softenAll]);
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
       if (e.key === "ArrowRight") next();
@@ -341,6 +343,7 @@ export function PdfBookReader({
   // ---- pointer: pan when zoomed (blank areas); text selects freely ------
   const onDownCapture = (e: React.PointerEvent) => {
     const target = e.target as HTMLElement;
+    softenAll(); // keep covers soft for drag-flips too
     // when zoomed (and not highlighting), drag to pan
     if (zoomRef.current > 1 && !hlModeRef.current && stageRef.current && !target.closest(".textLayer span")) {
       e.stopPropagation();
