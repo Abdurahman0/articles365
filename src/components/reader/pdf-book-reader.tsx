@@ -50,6 +50,7 @@ export function PdfBookReader({
   const [flip, setFlip] = useState(0);
   const [fs, setFs] = useState(false);
   const [zoom, setZoom] = useState(1.5);
+  const [tx, setTx] = useState(0); // horizontal translate to keep content centered
 
   const [hlMode, setHlMode] = useState(false);
   const [hlColor, setHlColor] = useState<HlColor>("yellow");
@@ -245,10 +246,38 @@ export function PdfBookReader({
   const clearAll = () => { setHighlights({}); save({}); };
 
   // ---- flip / zoom ------------------------------------------------------
+  // center the currently visible page(s) — solo cover or spread
+  const centerContent = useCallback(() => {
+    const stage = stageRef.current;
+    if (!stage) return;
+    const sr = stage.getBoundingClientRect();
+    const stageCenter = sr.left + sr.width / 2;
+    let min = Infinity, max = -Infinity;
+    document.querySelectorAll<HTMLElement>(".flip-book .page").forEach((p) => {
+      const r = p.getBoundingClientRect();
+      if (r.width < 2 || r.height < 2) return;
+      const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+      if (cx < sr.left || cx > sr.right || cy < sr.top || cy > sr.bottom) return; // only on-screen leaves
+      min = Math.min(min, r.left);
+      max = Math.max(max, r.right);
+    });
+    if (!isFinite(min)) return;
+    const contentCenter = (min + max) / 2;
+    const delta = stageCenter - contentCenter;
+    if (Math.abs(delta) > 1) setTx((prev) => prev + delta);
+  }, []);
+
   const onFlip = useCallback((e: { data: number }) => {
     setFlip(e.data);
     renderWindow(Math.min(e.data + 1, pageCount || 1));
-  }, [renderWindow, pageCount]);
+    setTimeout(centerContent, 760);
+  }, [renderWindow, pageCount, centerContent]);
+
+  useEffect(() => {
+    if (phase !== "ready") return;
+    const t = setTimeout(centerContent, 500);
+    return () => clearTimeout(t);
+  }, [phase, centerContent]);
   const next = useCallback(() => { try { bookRef.current?.pageFlip().flipNext(); } catch {} }, []);
   const prev = useCallback(() => { try { bookRef.current?.pageFlip().flipPrev(); } catch {} }, []);
   useEffect(() => {
@@ -269,10 +298,11 @@ export function PdfBookReader({
         const recenter = () => { st.scrollLeft = cx * r - st.clientWidth / 2; st.scrollTop = cy * r - st.clientHeight / 2; };
         requestAnimationFrame(recenter);
         setTimeout(recenter, 210);
+        setTimeout(centerContent, 240);
       }
       return clamped;
     });
-  }, []);
+  }, [centerContent]);
 
   const toggleFs = () => {
     if (document.fullscreenElement) { document.exitFullscreen(); setFs(false); }
@@ -337,7 +367,7 @@ export function PdfBookReader({
           </Center>
         )}
         {phase === "ready" && pageCount > 0 && (
-          <div className="grid h-full place-items-center p-1.5 sm:p-3" style={{ transform: `scale(${zoom})`, transformOrigin: "50% 0", transition: "transform 0.18s ease" }}>
+          <div className="grid h-full place-items-center p-1.5 sm:p-3" style={{ transform: `translateX(${tx}px) scale(${zoom})`, transformOrigin: "50% 0", transition: "transform 0.18s ease" }}>
             <BookPages leaves={leaves} flipRef={bookRef} onFlip={onFlip} onInit={handleInit} registerCanvas={registerCanvas} />
           </div>
         )}
@@ -401,18 +431,17 @@ const BookPages = memo(function BookPages({ leaves, flipRef, onFlip, onInit, reg
         showPageCorners disableFlipByClick
         style={{}} className="flip-book" onFlip={onFlip} onInit={onInit}
       >
-        {leaves.map((p, i) => {
-          const hard = i === 0 || i === leaves.length - 1;
-          return p === null ? (
-            <div className="page page-blank-leaf" key={`b-${i}`} data-density={hard ? "hard" : "soft"} />
+        {leaves.map((p, i) =>
+          p === null ? (
+            <div className="page page-blank-leaf" key={`b-${i}`} data-density="soft" />
           ) : (
-            <div className="page page-pdf" data-page={p} key={p} data-density={hard ? "hard" : "soft"}>
+            <div className="page page-pdf" data-page={p} key={p} data-density="soft">
               <canvas ref={(el) => registerCanvas(p, el)} className="pdf-canvas" />
               <div className="textLayer" data-text-layer={p} />
               <div className="hl-layer" data-hl-layer={p} />
             </div>
-          );
-        })}
+          )
+        )}
       </HTMLFlipBook>
     </div>
   );
