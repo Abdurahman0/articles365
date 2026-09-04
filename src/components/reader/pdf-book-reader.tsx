@@ -69,11 +69,11 @@ export function PdfBookReader({
 
   const key = `a365.pdfhl.${storageKey}`;
 
-  // leaf order: first + last render as centered solo covers (showCover);
-  // interior pages must be even, so pad a blank before the last page if needed.
+  // leaf order: front cover (page 1) + spreads; total must be even for showCover,
+  // so append a blank "back cover" if needed (page 1 stays a centered cover).
   const leaves: (number | null)[] = [];
   for (let p = 1; p <= pageCount; p++) leaves.push(p);
-  if (pageCount >= 3 && (pageCount - 2) % 2 === 1) leaves.splice(leaves.length - 1, 0, null);
+  if (leaves.length % 2 === 1) leaves.push(null);
 
   const displayPage = leaves[flip] ?? leaves[Math.max(0, flip - 1)] ?? 1;
   const pct = pageCount ? Math.round((displayPage / pageCount) * 100) : 0;
@@ -305,7 +305,7 @@ export function PdfBookReader({
           </Center>
         )}
         {phase === "ready" && pageCount > 0 && (
-          <div className="grid h-full place-items-center p-3 sm:p-6" style={{ transform: `scale(${zoom})`, transformOrigin: "50% 0", transition: "transform 0.18s ease" }}>
+          <div className="grid h-full place-items-center p-1.5 sm:p-3" style={{ transform: `scale(${zoom})`, transformOrigin: "50% 0", transition: "transform 0.18s ease" }}>
             <BookPages leaves={leaves} flipRef={bookRef} onFlip={onFlip} onInit={handleInit} registerCanvas={registerCanvas} />
           </div>
         )}
@@ -360,8 +360,8 @@ const BookPages = memo(function BookPages({ leaves, flipRef, onFlip, onInit, reg
     <div className="flip-wrap">
       <HTMLFlipBook
         ref={flipRef}
-        width={480} height={620} size="stretch"
-        minWidth={300} maxWidth={620} minHeight={387} maxHeight={800}
+        width={520} height={672} size="stretch"
+        minWidth={300} maxWidth={780} minHeight={387} maxHeight={1010}
         startPage={0} startZIndex={0} autoSize={false}
         drawShadow flippingTime={700} usePortrait maxShadowOpacity={0.5}
         showCover mobileScrollSupport={false}
