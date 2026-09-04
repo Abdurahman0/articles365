@@ -326,9 +326,12 @@ export function PdfBookReader({
       if (typeof i === "number") setFlip(i);
     } catch {}
   }, []);
-  const syncSoon = useCallback(() => { [760, 1000, 1300].forEach((t) => setTimeout(syncFlip, t)); }, [syncFlip]);
-  const next = useCallback(() => { try { bookRef.current?.pageFlip().flipNext(); syncSoon(); } catch {} }, [syncSoon]);
-  const prev = useCallback(() => { try { bookRef.current?.pageFlip().flipPrev(); syncSoon(); } catch {} }, [syncSoon]);
+  // sample the real engine index across the whole flip window so `flip`
+  // (→ label + canPrev/canNext) never goes stale, whatever the flip speed.
+  // setFlip with an unchanged value is a no-op, so this adds no re-render churn.
+  const pollFlip = useCallback(() => { [120, 360, 720, 1050, 1450].forEach((t) => setTimeout(syncFlip, t)); }, [syncFlip]);
+  const next = useCallback(() => { try { bookRef.current?.pageFlip().flipNext(); pollFlip(); } catch {} }, [pollFlip]);
+  const prev = useCallback(() => { try { bookRef.current?.pageFlip().flipPrev(); pollFlip(); } catch {} }, [pollFlip]);
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
       if (e.key === "ArrowRight") next();
