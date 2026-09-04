@@ -485,7 +485,7 @@ const BookPages = memo(function BookPages({ leaves, flipRef, onFlip, onInit, reg
         drawShadow flippingTime={700} usePortrait={false} maxShadowOpacity={0.5}
         showCover mobileScrollSupport={false}
         clickEventForward={false} useMouseEvents swipeDistance={30}
-        showPageCorners disableFlipByClick
+        showPageCorners disableFlipByClick={false}
         style={{}} className="flip-book" onFlip={onFlip} onInit={onInit}
       >
         {leaves.map((p, i) =>
