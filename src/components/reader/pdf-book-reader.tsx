@@ -40,6 +40,20 @@ let uidc = 0;
 const uid = () => "h" + Date.now().toString(36) + (uidc++);
 const clamp01 = (n: number) => Math.min(1, Math.max(0, n));
 
+// tiled diagonal watermark, drawn as a repeating inline-SVG background (cheap,
+// pointer-events:none, so it never interferes with text selection / highlights)
+const WATERMARK_TEXT = "365 Magazines";
+const xmlEsc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+const watermarkUrl = (text: string) => {
+  const t = xmlEsc(text);
+  const svg =
+    `<svg xmlns='http://www.w3.org/2000/svg' width='300' height='190'>` +
+    `<text x='150' y='104' transform='rotate(-27 150 95)' text-anchor='middle' ` +
+    `fill='#8a8a8a' fill-opacity='0.16' font-family='Arial, Helvetica, sans-serif' ` +
+    `font-size='21' font-weight='700'>${t}</text></svg>`;
+  return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
+};
+
 type HlMap = Record<number, Hl[]>;
 
 export function PdfBookReader({
@@ -190,24 +204,32 @@ export function PdfBookReader({
 
   // Block page-flip's drag while highlighting or zoomed (it listens on an
   // ancestor, so we stop the event at the page — flip off, selection/pan stay).
+  // A MutationObserver re-attaches to freshly created .page nodes so this keeps
+  // working after an orientation remount (otherwise page-flip grabs the
+  // mousedown that starts a text selection → highlighting silently breaks).
   useEffect(() => {
     if (phase !== "ready") return;
     const stop = (e: Event) => {
       if (hlModeRef.current || zoomRef.current > 1) e.stopPropagation();
     };
     const evs = ["mousedown", "mousemove", "mouseup", "touchstart", "touchmove", "touchend"] as const;
+    const bound = new WeakSet<HTMLElement>();
     const attach = () => {
-      const pages = Array.from(document.querySelectorAll<HTMLElement>(".flip-book .page"));
-      pages.forEach((p) => evs.forEach((ev) => p.addEventListener(ev, stop)));
-      return pages;
+      document.querySelectorAll<HTMLElement>(".flip-book .page").forEach((p) => {
+        if (bound.has(p)) return;
+        bound.add(p);
+        evs.forEach((ev) => p.addEventListener(ev, stop));
+      });
     };
-    const t = setTimeout(() => {
-      const pages = attach();
-      cleanup = () => pages.forEach((p) => evs.forEach((ev) => p.removeEventListener(ev, stop)));
-    }, 300);
-    let cleanup = () => {};
-    return () => { clearTimeout(t); cleanup(); };
-  }, [phase, pageCount]);
+    attach();
+    const t1 = setTimeout(attach, 300), t2 = setTimeout(attach, 900);
+    const mo = new MutationObserver(attach);
+    if (stageRef.current) mo.observe(stageRef.current, { childList: true, subtree: true });
+    return () => {
+      clearTimeout(t1); clearTimeout(t2); mo.disconnect();
+      document.querySelectorAll<HTMLElement>(".flip-book .page").forEach((p) => evs.forEach((ev) => p.removeEventListener(ev, stop)));
+    };
+  }, [phase]);
 
   // showCover forces the cover pages to "hard" — keep every page soft so they
   // all curl the same. Re-applied before each flip since the lib re-sets it.
@@ -502,6 +524,7 @@ interface BookPagesProps {
   portrait: boolean;
 }
 const BookPages = memo(function BookPages({ leaves, flipRef, onFlip, onInit, registerCanvas, portrait }: BookPagesProps) {
+  const wmBg = watermarkUrl(WATERMARK_TEXT);
   return (
     <div className="flip-wrap">
       <HTMLFlipBook
@@ -522,6 +545,7 @@ const BookPages = memo(function BookPages({ leaves, flipRef, onFlip, onInit, reg
           ) : (
             <div className="page page-pdf" data-page={p} key={p} data-density="soft">
               <canvas ref={(el) => registerCanvas(p, el)} className="pdf-canvas" />
+              <div className="wm-layer" style={{ backgroundImage: wmBg }} />
               <div className="textLayer" data-text-layer={p} />
               <div className="hl-layer" data-hl-layer={p} />
             </div>
