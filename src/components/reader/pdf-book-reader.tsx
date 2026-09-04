@@ -78,6 +78,8 @@ export function PdfBookReader({
 
   const displayPage = leaves[flip] ?? leaves[Math.max(0, flip - 1)] ?? 1;
   const pct = pageCount ? Math.round((displayPage / pageCount) * 100) : 0;
+  const canPrev = flip > 0;
+  const canNext = flip < leaves.length - 1;
 
   // ---- load PDF + saved highlights --------------------------------------
   useEffect(() => {
@@ -375,9 +377,9 @@ export function PdfBookReader({
 
       {/* Controls */}
       <div className="flex flex-wrap items-center justify-center gap-2 border-t border-white/10 px-3 py-2.5 text-zinc-200">
-        <button onClick={prev} className="rounded-xl border border-white/15 px-3 py-2 text-sm hover:bg-white/10">← Prev</button>
+        <button onClick={prev} disabled={!canPrev} className="rounded-xl border border-white/15 px-3 py-2 text-sm hover:bg-white/10 disabled:opacity-30 disabled:hover:bg-transparent">← Prev</button>
         <span className="min-w-14 text-center text-xs text-zinc-400 tabular-nums">{displayPage} / {pageCount}</span>
-        <button onClick={next} className="rounded-xl border border-white/15 px-3 py-2 text-sm hover:bg-white/10">Next →</button>
+        <button onClick={next} disabled={!canNext} className="rounded-xl border border-white/15 px-3 py-2 text-sm hover:bg-white/10 disabled:opacity-30 disabled:hover:bg-transparent">Next →</button>
 
         <span className="mx-1 h-6 w-px bg-white/15" />
         <button onClick={() => applyZoom(zoom - ZOOM_STEP)} disabled={zoom <= ZOOM_MIN} aria-label="Zoom out" className="grid size-9 place-items-center rounded-xl border border-white/15 hover:bg-white/10 disabled:opacity-40"><Minus className="size-4" /></button>
@@ -426,7 +428,7 @@ const BookPages = memo(function BookPages({ leaves, flipRef, onFlip, onInit, reg
         minWidth={300} maxWidth={780} minHeight={387} maxHeight={1010}
         startPage={0} startZIndex={0} autoSize={false}
         drawShadow flippingTime={700} usePortrait maxShadowOpacity={0.5}
-        showCover mobileScrollSupport={false}
+        showCover={false} mobileScrollSupport={false}
         clickEventForward={false} useMouseEvents swipeDistance={30}
         showPageCorners disableFlipByClick
         style={{}} className="flip-book" onFlip={onFlip} onInit={onInit}
