@@ -275,6 +275,7 @@ export function PdfBookReader({
   const centerContent = useCallback(() => {
     const stage = stageRef.current;
     if (!stage) return;
+    if (zoomRef.current >= 2) { setTx(0); return; } // single-page pan mode
     const sr = stage.getBoundingClientRect();
     const stageCenter = sr.left + sr.width / 2;
     let min = Infinity, max = -Infinity;
@@ -292,12 +293,27 @@ export function PdfBookReader({
     if (Math.abs(delta) > 1) setTx((prev) => prev + delta);
   }, []);
 
+  // at >=200% zoom, snap the view to a single (left) page
+  const scrollToOnePage = useCallback(() => {
+    const stage = stageRef.current;
+    if (!stage) return;
+    const sr = stage.getBoundingClientRect();
+    const vis = Array.from(document.querySelectorAll<HTMLElement>(".flip-book .page"))
+      .map((p) => p.getBoundingClientRect())
+      .filter((r) => r.width > 4 && r.bottom > sr.top && r.top < sr.bottom && r.right > sr.left && r.left < sr.right);
+    if (!vis.length) return;
+    vis.sort((a, b) => a.left - b.left);
+    stage.scrollTop = 0;
+    stage.scrollLeft += vis[0].left - sr.left;
+  }, []);
+
   const onFlip = useCallback((e: { data: number }) => {
     setFlip(e.data);
     renderWindow(Math.min(e.data + 1, pageCount || 1));
     setTimeout(centerContent, 760);
+    setTimeout(() => { if (zoomRef.current >= 2) scrollToOnePage(); }, 800);
     setTimeout(softenAll, 40); // keep upcoming flips (incl. covers) soft
-  }, [renderWindow, pageCount, centerContent, softenAll]);
+  }, [renderWindow, pageCount, centerContent, softenAll, scrollToOnePage]);
 
   useEffect(() => {
     if (phase !== "ready") return;
@@ -327,15 +343,19 @@ export function PdfBookReader({
     const clamped = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, +nz.toFixed(2)));
     setZoom((old) => {
       if (st && old) {
-        const cx = st.scrollLeft + st.clientWidth / 2, cy = st.scrollTop + st.clientHeight / 2, r = clamped / old;
-        const recenter = () => { st.scrollLeft = cx * r - st.clientWidth / 2; st.scrollTop = cy * r - st.clientHeight / 2; };
-        requestAnimationFrame(recenter);
-        setTimeout(recenter, 210);
+        if (clamped >= 2) {
+          setTimeout(scrollToOnePage, 230);
+        } else {
+          const cx = st.scrollLeft + st.clientWidth / 2, cy = st.scrollTop + st.clientHeight / 2, r = clamped / old;
+          const recenter = () => { st.scrollLeft = cx * r - st.clientWidth / 2; st.scrollTop = cy * r - st.clientHeight / 2; };
+          requestAnimationFrame(recenter);
+          setTimeout(recenter, 210);
+        }
         setTimeout(centerContent, 240);
       }
       return clamped;
     });
-  }, [centerContent]);
+  }, [centerContent, scrollToOnePage]);
 
   const toggleFs = () => {
     if (document.fullscreenElement) { document.exitFullscreen(); setFs(false); }
@@ -355,8 +375,9 @@ export function PdfBookReader({
   const onMoveCapture = (e: React.PointerEvent) => {
     if (pan.current.active && stageRef.current) {
       e.stopPropagation();
-      // vertical pan only
       stageRef.current.scrollTop = pan.current.st - (e.clientY - pan.current.y);
+      // horizontal pan only in single-page (>=200%) mode
+      if (zoomRef.current >= 2) stageRef.current.scrollLeft = pan.current.sl - (e.clientX - pan.current.x);
     }
   };
   const onUpCapture = () => {
@@ -383,7 +404,7 @@ export function PdfBookReader({
 
       <div
         ref={stageRef}
-        className={cn("relative flex-1 no-scrollbar", zoom > 1 ? "overflow-y-auto overflow-x-hidden" : "overflow-hidden", hlMode && "cursor-text")}
+        className={cn("relative flex-1 no-scrollbar", zoom >= 2 ? "overflow-auto" : zoom > 1 ? "overflow-y-auto overflow-x-hidden" : "overflow-hidden", hlMode && "cursor-text")}
         onPointerDownCapture={onDownCapture}
         onPointerMoveCapture={onMoveCapture}
         onPointerUpCapture={onUpCapture}
@@ -400,7 +421,7 @@ export function PdfBookReader({
           </Center>
         )}
         {phase === "ready" && pageCount > 0 && (
-          <div className="grid h-full place-items-center p-1.5 sm:p-3" style={{ transform: `translateX(${tx}px) scale(${zoom})`, transformOrigin: "50% 0", transition: "transform 0.18s ease" }}>
+          <div className="grid h-full place-items-center p-1.5 sm:p-3" style={{ transform: `translateX(${zoom >= 2 ? 0 : tx}px) scale(${zoom})`, transformOrigin: zoom >= 2 ? "0 0" : "50% 0", transition: "transform 0.18s ease" }}>
             <BookPages leaves={leaves} flipRef={bookRef} onFlip={onFlip} onInit={handleInit} registerCanvas={registerCanvas} />
           </div>
         )}
