@@ -49,8 +49,10 @@ export function PdfBookReader({
   const [pageCount, setPageCount] = useState(0);
   const [flip, setFlip] = useState(0);
   const [fs, setFs] = useState(false);
-  const [zoom, setZoom] = useState(1.5);
+  const [zoom, setZoom] = useState(() => (typeof window !== "undefined" && window.innerWidth < 700 ? 1 : 1.5));
   const [tx, setTx] = useState(0); // horizontal translate to keep content centered
+  // small screens: one page per screen (a 2-page spread is unreadable on a phone)
+  const [portrait, setPortrait] = useState(() => typeof window !== "undefined" && window.innerWidth < 700);
 
   const [hlMode, setHlMode] = useState(false);
   const [hlColor, setHlColor] = useState<HlColor>("yellow");
@@ -67,6 +69,18 @@ export function PdfBookReader({
   const hlModeRef = useRef(hlMode); useEffect(() => { hlModeRef.current = hlMode; }, [hlMode]);
   const hlColorRef = useRef(hlColor); useEffect(() => { hlColorRef.current = hlColor; }, [hlColor]);
   const zoomRef = useRef(zoom); useEffect(() => { zoomRef.current = zoom; }, [zoom]);
+  const highlightsRef = useRef(highlights); useEffect(() => { highlightsRef.current = highlights; }, [highlights]);
+
+  // track the portrait/landscape breakpoint; flipbook remounts when it flips
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 699px)");
+    const on = () => setPortrait(mq.matches);
+    on();
+    mq.addEventListener("change", on);
+    return () => mq.removeEventListener("change", on);
+  }, []);
+  // reset zoom/pan to a sensible fit whenever the orientation mode changes
+  useEffect(() => { setZoom(portrait ? 1 : 1.5); setTx(0); }, [portrait]);
 
   const key = `a365.pdfhl.${storageKey}`;
 
@@ -78,7 +92,8 @@ export function PdfBookReader({
   const displayPage = leaves[flip] ?? leaves[Math.max(0, flip - 1)] ?? 1;
   const pct = pageCount ? Math.round((displayPage / pageCount) * 100) : 0;
   const canPrev = flip > 0;
-  const canNext = flip < pageCount - 2;
+  // landscape advances a spread (2 pages), portrait advances a single page
+  const canNext = flip < pageCount - (portrait ? 1 : 2);
 
   // ---- load PDF + saved highlights --------------------------------------
   useEffect(() => {
@@ -210,7 +225,11 @@ export function PdfBookReader({
 
   const handleInit = useCallback(() => { renderWindow(1); softenAll(); }, [renderWindow, softenAll]);
   const registerCanvas = useCallback((p: number, el: HTMLCanvasElement | null) => {
-    if (el) canvases.current.set(p, el); else canvases.current.delete(p);
+    if (el) {
+      // a fresh canvas (e.g. after an orientation remount) is blank → re-render it
+      if (canvases.current.get(p) !== el) renderedSet.current.delete(p);
+      canvases.current.set(p, el);
+    } else canvases.current.delete(p);
   }, []);
 
   // ---- highlight overlay (imperative — decoupled from react-pageflip) ----
@@ -224,8 +243,10 @@ export function PdfBookReader({
   }, []);
   useEffect(() => {
     if (phase !== "ready") return;
-    for (let p = 1; p <= pageCount; p++) redrawPage(p, highlights);
-  }, [highlights, phase, pageCount, redrawPage]);
+    // slight delay so a remounted flipbook has committed its fresh hl-layers
+    const t = setTimeout(() => { for (let p = 1; p <= pageCount; p++) redrawPage(p, highlights); }, portrait ? 60 : 0);
+    return () => clearTimeout(t);
+  }, [highlights, phase, pageCount, redrawPage, portrait]);
 
   // turn the current text selection into highlight rects (per page)
   const commitSelection = useCallback(() => {
@@ -430,13 +451,13 @@ export function PdfBookReader({
         )}
         {phase === "ready" && pageCount > 0 && (
           <div className="grid h-full place-items-center p-1.5 sm:p-3" style={{ transform: `translateX(${zoom >= 2 ? 0 : tx}px) scale(${zoom})`, transformOrigin: zoom >= 2 ? "0 0" : "50% 0", transition: "transform 0.18s ease" }}>
-            <BookPages leaves={leaves} flipRef={bookRef} onFlip={onFlip} onInit={handleInit} registerCanvas={registerCanvas} />
+            <BookPages leaves={leaves} flipRef={bookRef} onFlip={onFlip} onInit={handleInit} registerCanvas={registerCanvas} portrait={portrait} />
           </div>
         )}
       </div>
 
       {/* Controls */}
-      <div className="flex flex-wrap items-center justify-center gap-2 border-t border-white/10 px-3 py-2.5 text-zinc-200">
+      <div className="flex flex-wrap items-center justify-center gap-1.5 border-t border-white/10 px-2 py-2 text-zinc-200 sm:gap-2 sm:px-3 sm:py-2.5">
         <button onClick={prev} disabled={!canPrev} className="rounded-xl border border-white/15 px-3 py-2 text-sm hover:bg-white/10 disabled:opacity-30 disabled:hover:bg-transparent">← Prev</button>
         <span className="min-w-14 text-center text-xs text-zinc-400 tabular-nums">{displayPage} / {pageCount}</span>
         <button onClick={next} disabled={!canNext} className="rounded-xl border border-white/15 px-3 py-2 text-sm hover:bg-white/10 disabled:opacity-30 disabled:hover:bg-transparent">Next →</button>
@@ -478,16 +499,18 @@ interface BookPagesProps {
   onFlip: (e: { data: number }) => void;
   onInit: () => void;
   registerCanvas: (p: number, el: HTMLCanvasElement | null) => void;
+  portrait: boolean;
 }
-const BookPages = memo(function BookPages({ leaves, flipRef, onFlip, onInit, registerCanvas }: BookPagesProps) {
+const BookPages = memo(function BookPages({ leaves, flipRef, onFlip, onInit, registerCanvas, portrait }: BookPagesProps) {
   return (
     <div className="flip-wrap">
       <HTMLFlipBook
+        key={portrait ? "portrait" : "landscape"}
         ref={flipRef}
         width={520} height={672} size="stretch"
-        minWidth={300} maxWidth={780} minHeight={387} maxHeight={1010}
+        minWidth={280} maxWidth={780} minHeight={360} maxHeight={1010}
         startPage={0} startZIndex={0} autoSize={false}
-        drawShadow flippingTime={700} usePortrait={false} maxShadowOpacity={0.5}
+        drawShadow flippingTime={700} usePortrait={portrait} maxShadowOpacity={0.5}
         showCover mobileScrollSupport={false}
         clickEventForward={false} useMouseEvents swipeDistance={30}
         showPageCorners disableFlipByClick={false}
