@@ -77,8 +77,8 @@ export function PdfBookReader({
 
   const displayPage = leaves[flip] ?? leaves[Math.max(0, flip - 1)] ?? 1;
   const pct = pageCount ? Math.round((displayPage / pageCount) * 100) : 0;
-  const canPrev = displayPage > 1;
-  const canNext = displayPage < pageCount - 1;
+  const canPrev = flip > 0;
+  const canNext = flip < pageCount - 2;
 
   // ---- load PDF + saved highlights --------------------------------------
   useEffect(() => {
@@ -247,10 +247,20 @@ export function PdfBookReader({
       });
     }
     if (!additions.length) return;
+    // overlap ratio of `a` covered by existing highlight `h`
+    const covered = (a: { x: number; y: number; w: number; h: number }, h: Hl) => {
+      const ix = Math.max(0, Math.min(a.x + a.w, h.x + h.w) - Math.max(a.x, h.x));
+      const iy = Math.max(0, Math.min(a.y + a.h, h.y + h.h) - Math.max(a.y, h.y));
+      const area = a.w * a.h;
+      return area > 0 ? (ix * iy) / area : 0;
+    };
     setHighlights((prev) => {
       const next: HlMap = { ...prev };
-      for (const a of additions)
-        next[a.page] = [...(next[a.page] ?? []), { id: uid(), x: a.x, y: a.y, w: a.w, h: a.h, color: hlColorRef.current }];
+      for (const a of additions) {
+        const existing = next[a.page] ?? [];
+        if (existing.some((h) => covered(a, h) > 0.5)) continue; // already highlighted → skip
+        next[a.page] = [...existing, { id: uid(), x: a.x, y: a.y, w: a.w, h: a.h, color: hlColorRef.current }];
+      }
       save(next); return next;
     });
     sel.removeAllRanges();
@@ -291,8 +301,14 @@ export function PdfBookReader({
     const t = setTimeout(centerContent, 500);
     return () => clearTimeout(t);
   }, [phase, centerContent]);
-  const next = useCallback(() => { try { bookRef.current?.pageFlip().flipNext(); } catch {} }, []);
-  const prev = useCallback(() => { try { bookRef.current?.pageFlip().flipPrev(); } catch {} }, []);
+  const syncFlip = useCallback(() => {
+    try {
+      const i = (bookRef.current?.pageFlip() as unknown as { getCurrentPageIndex?: () => number })?.getCurrentPageIndex?.();
+      if (typeof i === "number") setFlip(i);
+    } catch {}
+  }, []);
+  const next = useCallback(() => { try { bookRef.current?.pageFlip().flipNext(); setTimeout(syncFlip, 780); } catch {} }, [syncFlip]);
+  const prev = useCallback(() => { try { bookRef.current?.pageFlip().flipPrev(); setTimeout(syncFlip, 780); } catch {} }, [syncFlip]);
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
       if (e.key === "ArrowRight") next();
