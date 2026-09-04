@@ -74,12 +74,11 @@ export function PdfBookReader({
   // so append a blank "back cover" if needed (page 1 stays a centered cover).
   const leaves: (number | null)[] = [];
   for (let p = 1; p <= pageCount; p++) leaves.push(p);
-  if (leaves.length % 2 === 1) leaves.push(null);
 
   const displayPage = leaves[flip] ?? leaves[Math.max(0, flip - 1)] ?? 1;
   const pct = pageCount ? Math.round((displayPage / pageCount) * 100) : 0;
-  const canPrev = flip > 0;
-  const canNext = flip < leaves.length - 1;
+  const canPrev = displayPage > 1;
+  const canNext = displayPage < pageCount - 1;
 
   // ---- load PDF + saved highlights --------------------------------------
   useEffect(() => {
