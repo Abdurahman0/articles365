@@ -39,3 +39,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# PDF-to-Blog feature: local JSON store + extracted images
+/.data/
+/public/blog-media/
