@@ -16,6 +16,9 @@ const USE_BLOB = !!process.env.BLOB_READ_WRITE_TOKEN;
 const DATA_DIR = path.join(process.cwd(), ".data", "blogs");
 const BLOB_PREFIX = "blogs/";
 
+// exposed so API error responses can say which backend was in use (diagnostics)
+export const STORE_BACKEND = USE_BLOB ? "blob" : "fs";
+
 export function slugify(input: string): string {
   return (input || "untitled")
     .toLowerCase()
