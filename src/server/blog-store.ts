@@ -7,17 +7,24 @@
 
 import "server-only";
 import { promises as fs } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { put as blobPut, list as blobList } from "@vercel/blob";
 import type { Blog, BlogDocument, BlogStatus, BlogSummary } from "@/types/blog";
 
 const USE_BLOB = !!process.env.BLOB_READ_WRITE_TOKEN;
-const DATA_DIR = path.join(process.cwd(), ".data", "blogs");
+// On Vercel the project dir is read-only; /tmp is the only writable path (but
+// ephemeral + per-instance). Used only as a no-setup fallback when Blob isn't
+// configured — real persistence needs BLOB_READ_WRITE_TOKEN.
+const EPHEMERAL = !USE_BLOB && !!process.env.VERCEL;
+const DATA_DIR = EPHEMERAL
+  ? path.join(os.tmpdir(), "a365-blogs")
+  : path.join(process.cwd(), ".data", "blogs");
 const BLOB_PREFIX = "blogs/";
 
 // exposed so API error responses can say which backend was in use (diagnostics)
-export const STORE_BACKEND = USE_BLOB ? "blob" : "fs";
+export const STORE_BACKEND = USE_BLOB ? "blob" : EPHEMERAL ? "fs-ephemeral(/tmp)" : "fs";
 
 export function slugify(input: string): string {
   return (input || "untitled")
