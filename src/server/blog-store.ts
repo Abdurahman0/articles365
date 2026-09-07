@@ -1,18 +1,20 @@
-// Filesystem-backed blog store (one JSON file per blog under .data/blogs).
-// No database is configured in this project; this keeps the feature
-// self-contained and swappable for a real DB later (same async interface).
+// Blog store with two interchangeable backends behind one async interface:
+//   - Vercel Blob  (when BLOB_READ_WRITE_TOKEN is set — e.g. on Vercel, whose
+//                   runtime filesystem is read-only)
+//   - Filesystem   (.data/blogs/*.json — local dev / self-hosted)
+// Image bytes are inlined as data URIs in the document, so no separate blob
+// upload is needed for media.
 
 import "server-only";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
+import { put as blobPut, list as blobList } from "@vercel/blob";
 import type { Blog, BlogDocument, BlogStatus, BlogSummary } from "@/types/blog";
 
+const USE_BLOB = !!process.env.BLOB_READ_WRITE_TOKEN;
 const DATA_DIR = path.join(process.cwd(), ".data", "blogs");
-
-async function ensureDir() {
-  await fs.mkdir(DATA_DIR, { recursive: true });
-}
+const BLOB_PREFIX = "blogs/";
 
 export function slugify(input: string): string {
   return (input || "untitled")
@@ -24,24 +26,59 @@ export function slugify(input: string): string {
     .slice(0, 80) || "untitled";
 }
 
+const byUpdated = (a: Blog, b: Blog) => +new Date(b.updatedAt) - +new Date(a.updatedAt);
+
+// ---- backend: read all ----------------------------------------------------
 async function readAll(): Promise<Blog[]> {
-  await ensureDir();
+  if (USE_BLOB) {
+    const { blobs } = await blobList({ prefix: BLOB_PREFIX });
+    const out: Blog[] = [];
+    for (const b of blobs) {
+      try { const r = await fetch(b.url, { cache: "no-store" }); if (r.ok) out.push(await r.json()); } catch { /* skip */ }
+    }
+    return out.sort(byUpdated);
+  }
+  await fs.mkdir(DATA_DIR, { recursive: true });
   const files = (await fs.readdir(DATA_DIR)).filter((f) => f.endsWith(".json"));
   const out: Blog[] = [];
   for (const f of files) {
-    try { out.push(JSON.parse(await fs.readFile(path.join(DATA_DIR, f), "utf8"))); } catch { /* skip corrupt */ }
+    try { out.push(JSON.parse(await fs.readFile(path.join(DATA_DIR, f), "utf8"))); } catch { /* skip */ }
   }
-  return out.sort((a, b) => +new Date(b.updatedAt) - +new Date(a.updatedAt));
+  return out.sort(byUpdated);
 }
 
-async function write(blog: Blog) {
-  await ensureDir();
+// ---- backend: write one ---------------------------------------------------
+async function writeBlog(blog: Blog): Promise<void> {
+  if (USE_BLOB) {
+    await blobPut(`${BLOB_PREFIX}${blog.id}.json`, JSON.stringify(blog), {
+      access: "public",
+      contentType: "application/json",
+      addRandomSuffix: false,
+      allowOverwrite: true,
+    });
+    return;
+  }
+  await fs.mkdir(DATA_DIR, { recursive: true });
   await fs.writeFile(path.join(DATA_DIR, `${blog.id}.json`), JSON.stringify(blog, null, 2), "utf8");
 }
 
+// ---- backend: get by id or slug -------------------------------------------
+async function getOne(idOrSlug: string): Promise<Blog | null> {
+  if (USE_BLOB) {
+    try {
+      const { blobs } = await blobList({ prefix: `${BLOB_PREFIX}${idOrSlug}.json` });
+      const exact = blobs.find((b) => b.pathname === `${BLOB_PREFIX}${idOrSlug}.json`);
+      if (exact) { const r = await fetch(exact.url, { cache: "no-store" }); if (r.ok) return r.json(); }
+    } catch { /* fall through to slug scan */ }
+    return (await readAll()).find((b) => b.slug === idOrSlug) ?? null;
+  }
+  await fs.mkdir(DATA_DIR, { recursive: true });
+  try { return JSON.parse(await fs.readFile(path.join(DATA_DIR, `${idOrSlug}.json`), "utf8")); } catch { /* try slug */ }
+  return (await readAll()).find((b) => b.slug === idOrSlug) ?? null;
+}
+
 async function uniqueSlug(base: string, exceptId?: string): Promise<string> {
-  const all = await readAll();
-  const taken = new Set(all.filter((b) => b.id !== exceptId).map((b) => b.slug));
+  const taken = new Set((await readAll()).filter((b) => b.id !== exceptId).map((b) => b.slug));
   if (!taken.has(base)) return base;
   let n = 2;
   while (taken.has(`${base}-${n}`)) n++;
@@ -60,21 +97,11 @@ export const blogStore = {
     return all.filter((b) => !opts?.status || b.status === opts.status).map(toSummary);
   },
 
-  async get(idOrSlug: string): Promise<Blog | null> {
-    await ensureDir();
-    try {
-      return JSON.parse(await fs.readFile(path.join(DATA_DIR, `${idOrSlug}.json`), "utf8"));
-    } catch { /* not an id — try slug */ }
-    const all = await readAll();
-    return all.find((b) => b.slug === idOrSlug) ?? null;
+  get(idOrSlug: string): Promise<Blog | null> {
+    return getOne(idOrSlug);
   },
 
-  async create(input: {
-    content: BlogDocument;
-    status?: BlogStatus;
-    sourcePdf?: string;
-    slug?: string;
-  }): Promise<Blog> {
+  async create(input: { content: BlogDocument; status?: BlogStatus; sourcePdf?: string; slug?: string }): Promise<Blog> {
     const now = new Date().toISOString();
     const id = randomUUID();
     const doc = input.content;
@@ -82,27 +109,17 @@ export const blogStore = {
     const status: BlogStatus = input.status ?? "draft";
     const blog: Blog = {
       id, slug,
-      title: doc.title,
-      subtitle: doc.subtitle,
-      author: doc.author,
-      coverImage: doc.coverImage,
-      content: doc,
-      sourcePdf: input.sourcePdf,
-      status,
-      createdAt: now,
-      updatedAt: now,
+      title: doc.title, subtitle: doc.subtitle, author: doc.author, coverImage: doc.coverImage,
+      content: doc, sourcePdf: input.sourcePdf, status,
+      createdAt: now, updatedAt: now,
       publishedAt: status === "published" ? now : null,
     };
-    await write(blog);
+    await writeBlog(blog);
     return blog;
   },
 
-  async update(id: string, patch: {
-    content?: BlogDocument;
-    status?: BlogStatus;
-    slug?: string;
-  }): Promise<Blog | null> {
-    const existing = await this.get(id);
+  async update(id: string, patch: { content?: BlogDocument; status?: BlogStatus; slug?: string }): Promise<Blog | null> {
+    const existing = await getOne(id);
     if (!existing) return null;
     const now = new Date().toISOString();
     const content = patch.content ?? existing.content;
@@ -110,18 +127,12 @@ export const blogStore = {
     if (patch.slug && slugify(patch.slug) !== existing.slug) slug = await uniqueSlug(slugify(patch.slug), existing.id);
     const status = patch.status ?? existing.status;
     const updated: Blog = {
-      ...existing,
-      slug,
-      title: content.title,
-      subtitle: content.subtitle,
-      author: content.author,
-      coverImage: content.coverImage,
-      content,
-      status,
-      updatedAt: now,
+      ...existing, slug,
+      title: content.title, subtitle: content.subtitle, author: content.author, coverImage: content.coverImage,
+      content, status, updatedAt: now,
       publishedAt: status === "published" ? existing.publishedAt ?? now : existing.publishedAt ?? null,
     };
-    await write(updated);
+    await writeBlog(updated);
     return updated;
   },
 };
