@@ -33,33 +33,53 @@ const getObj = (objs: { get: (n: string, cb: (o: unknown) => void) => void }, na
     catch { clearTimeout(to); res(null); }
   });
 
-type ImgObj = { width: number; height: number; kind: number; data: Uint8ClampedArray | Uint8Array };
 
 // Downsample straight into a small target canvas — never allocate a full
 // native-size canvas (a multi-megapixel photo would freeze/crash the tab).
-function toDataUrl(obj: ImgObj): string | null {
-  const { width, height, kind, data } = obj;
-  const ch = kind === 3 ? 4 : kind === 2 ? 3 : 1;
-  const scale = Math.min(1, IMG_MAX_W / width);
-  const dw = Math.max(1, Math.round(width * scale));
-  const dh = Math.max(1, Math.round(height * scale));
+// A pdf.js image object is either an ImageBitmap (browser/worker mode) or raw
+// pixels { kind, data } (Node-style). Handle both, downscaling to a JPEG.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function imageObjToDataUrl(obj: any): string | null {
+  let bitmap: ImageBitmap | null = null;
+  let data: Uint8ClampedArray | Uint8Array | null = null;
+  let kind = 0, w = 0, h = 0;
+
+  if (typeof ImageBitmap !== "undefined" && obj instanceof ImageBitmap) {
+    bitmap = obj; w = obj.width; h = obj.height;
+  } else if (obj?.bitmap && (typeof ImageBitmap === "undefined" || obj.bitmap instanceof ImageBitmap)) {
+    bitmap = obj.bitmap; w = obj.width || obj.bitmap.width; h = obj.height || obj.bitmap.height;
+  } else if (obj?.data) {
+    data = obj.data; kind = obj.kind; w = obj.width; h = obj.height;
+  }
+  if (!w || !h || w < IMG_MIN_SRC || h < IMG_MIN_SRC) return null;
+
+  const scale = Math.min(1, IMG_MAX_W / w);
+  const dw = Math.max(1, Math.round(w * scale));
+  const dh = Math.max(1, Math.round(h * scale));
   const dst = document.createElement("canvas");
   dst.width = dw; dst.height = dh;
   const dctx = dst.getContext("2d");
   if (!dctx) return null;
-  const img = dctx.createImageData(dw, dh);
-  const out = img.data;
-  for (let y = 0; y < dh; y++) {
-    const sy = Math.min(height - 1, Math.floor(y / scale));
-    for (let x = 0; x < dw; x++) {
-      const sx = Math.min(width - 1, Math.floor(x / scale));
-      const si = (sy * width + sx) * ch, di = (y * dw + x) * 4;
-      if (ch === 1) { const g = data[si]; out[di] = g; out[di + 1] = g; out[di + 2] = g; out[di + 3] = 255; }
-      else { out[di] = data[si]; out[di + 1] = data[si + 1]; out[di + 2] = data[si + 2]; out[di + 3] = ch === 4 ? data[si + 3] : 255; }
+
+  if (bitmap) {
+    dctx.drawImage(bitmap, 0, 0, dw, dh);
+  } else if (data) {
+    const ch = kind === 3 ? 4 : kind === 2 ? 3 : 1;
+    const img = dctx.createImageData(dw, dh);
+    const out = img.data;
+    for (let y = 0; y < dh; y++) {
+      const sy = Math.min(h - 1, Math.floor(y / scale));
+      for (let x = 0; x < dw; x++) {
+        const sx = Math.min(w - 1, Math.floor(x / scale));
+        const si = (sy * w + sx) * ch, di = (y * dw + x) * 4;
+        if (ch === 1) { const g = data[si]; out[di] = g; out[di + 1] = g; out[di + 2] = g; out[di + 3] = 255; }
+        else { out[di] = data[si]; out[di + 1] = data[si + 1]; out[di + 2] = data[si + 2]; out[di + 3] = ch === 4 ? data[si + 3] : 255; }
+      }
     }
-  }
-  dctx.putImageData(img, 0, 0);
-  return dst.toDataURL("image/jpeg", 0.72);
+    dctx.putImageData(img, 0, 0);
+  } else return null;
+
+  try { return dst.toDataURL("image/jpeg", 0.72); } catch { return null; }
 }
 
 interface ClientImage { page: number; y: number; drawnW: number; drawnH: number; url: string }
@@ -68,23 +88,14 @@ interface ClientImage { page: number; y: number; drawnW: number; drawnH: number;
 async function extractImages(doc: any): Promise<ClientImage[]> {
   const OPS = pdfjsLib.OPS;
   const results: ClientImage[] = [];
-  const deadline = performance.now() + 14000; // hard budget so parsing never hangs
+  const deadline = performance.now() + 12000; // hard budget so parsing never hangs
   for (let p = 1; p <= doc.numPages && results.length < IMG_MAX; p++) {
     if (performance.now() > deadline) break;
     try {
       const page = await doc.getPage(p);
       const vpH = page.getViewport({ scale: 1 }).height;
-      // In worker mode pdf.js only resolves image XObjects during rendering, so
-      // render the page at a low scale first — otherwise page.objs.get never
-      // returns and every image is silently dropped.
-      try {
-        const vp = page.getViewport({ scale: 0.35 });
-        const rc = document.createElement("canvas");
-        rc.width = Math.max(1, Math.floor(vp.width));
-        rc.height = Math.max(1, Math.floor(vp.height));
-        const rctx = rc.getContext("2d");
-        if (rctx) await page.render({ canvas: rc, canvasContext: rctx, viewport: vp }).promise;
-      } catch { /* rendering is only to populate objs */ }
+      // getOperatorList resolves the image XObjects into page.objs (no full
+      // render needed — and rendering can hang loading standard fonts).
       const ol = await page.getOperatorList();
       let ctm: M = [1, 0, 0, 1, 0, 0];
       const stack: M[] = [];
@@ -104,10 +115,8 @@ async function extractImages(doc: any): Promise<ClientImage[]> {
           const drawnH = Math.hypot(c2[0] - c0[0], c2[1] - c0[1]);
           if (drawnW < IMG_MIN_DRAWN || drawnH < IMG_MIN_DRAWN) continue;
           const yTop = vpH - Math.max(c0[1], c1[1], c2[1], c3[1]);
-          const obj = (await getObj(page.objs, name)) as ImgObj | null;
-          if (!obj?.data || !obj.width || !obj.height) continue;
-          if (obj.width < IMG_MIN_SRC || obj.height < IMG_MIN_SRC || ![1, 2, 3].includes(obj.kind)) continue;
-          const url = toDataUrl(obj);
+          const obj = await getObj(page.objs, name);
+          const url = obj ? imageObjToDataUrl(obj) : null;
           if (url) results.push({ page: p, y: yTop, drawnW, drawnH, url });
           await yield0(); // keep the UI responsive between heavy images
         }
