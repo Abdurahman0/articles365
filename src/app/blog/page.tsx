@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 export const metadata = { title: "Blog" };
 
 export default async function BlogIndexPage() {
-  const blogs = await blogStore.list({ status: "published" });
+  const blogs = await blogStore.list({ status: "published" }).catch(() => []);
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-12 sm:px-6">

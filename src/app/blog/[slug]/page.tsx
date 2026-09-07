@@ -9,14 +9,14 @@ export const dynamic = "force-dynamic";
 
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
   const { slug } = await params;
-  const blog = await blogStore.get(slug);
+  const blog = await blogStore.get(slug).catch(() => null);
   if (!blog || blog.status !== "published") return { title: "Article not found" };
   return { title: blog.title, description: blog.subtitle ?? undefined };
 }
 
 export default async function BlogArticlePage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
-  const blog = await blogStore.get(slug);
+  const blog = await blogStore.get(slug).catch(() => null);
   if (!blog || blog.status !== "published") notFound();
 
   const published = blog.publishedAt
