@@ -28,7 +28,7 @@ const apply = (m: M, x: number, y: number): [number, number] => [m[0] * x + m[2]
 const getObj = (objs: { get: (n: string, cb: (o: unknown) => void) => void }, name: string) =>
   new Promise<unknown>((res) => {
     let done = false;
-    const to = setTimeout(() => { if (!done) { done = true; res(null); } }, 2500);
+    const to = setTimeout(() => { if (!done) { done = true; res(null); } }, 1500);
     try { objs.get(name, (o) => { if (!done) { done = true; clearTimeout(to); res(o); } }); }
     catch { clearTimeout(to); res(null); }
   });
@@ -68,15 +68,29 @@ interface ClientImage { page: number; y: number; drawnW: number; drawnH: number;
 async function extractImages(doc: any): Promise<ClientImage[]> {
   const OPS = pdfjsLib.OPS;
   const results: ClientImage[] = [];
+  const deadline = performance.now() + 14000; // hard budget so parsing never hangs
   for (let p = 1; p <= doc.numPages && results.length < IMG_MAX; p++) {
+    if (performance.now() > deadline) break;
     try {
       const page = await doc.getPage(p);
       const vpH = page.getViewport({ scale: 1 }).height;
+      // In worker mode pdf.js only resolves image XObjects during rendering, so
+      // render the page at a low scale first — otherwise page.objs.get never
+      // returns and every image is silently dropped.
+      try {
+        const vp = page.getViewport({ scale: 0.35 });
+        const rc = document.createElement("canvas");
+        rc.width = Math.max(1, Math.floor(vp.width));
+        rc.height = Math.max(1, Math.floor(vp.height));
+        const rctx = rc.getContext("2d");
+        if (rctx) await page.render({ canvas: rc, canvasContext: rctx, viewport: vp }).promise;
+      } catch { /* rendering is only to populate objs */ }
       const ol = await page.getOperatorList();
       let ctm: M = [1, 0, 0, 1, 0, 0];
       const stack: M[] = [];
       const seen = new Set<string>();
       for (let i = 0; i < ol.fnArray.length && results.length < IMG_MAX; i++) {
+        if (performance.now() > deadline) break;
         const fn = ol.fnArray[i];
         if (fn === OPS.save) stack.push(ctm);
         else if (fn === OPS.restore) ctm = stack.pop() ?? [1, 0, 0, 1, 0, 0];
@@ -161,7 +175,15 @@ export async function parsePdfInBrowser(file: File, onStage?: (s: string) => voi
     const document = buildBlogDocument({ pageCount: doc.numPages, meta, pages }, file.name);
 
     onStage?.("Extracting images…");
-    try { placeImages(document, await extractImages(doc)); } catch { /* images best-effort */ }
+    try {
+      // hard cap the whole image pass — a slow render() await can't be
+      // interrupted internally, so race it so parsing always finishes
+      const imgs = await Promise.race<ClientImage[]>([
+        extractImages(doc),
+        new Promise<ClientImage[]>((r) => setTimeout(() => r([]), 16000)),
+      ]);
+      placeImages(document, imgs);
+    } catch { /* images best-effort */ }
 
     if (!document.blocks.length) throw new Error("No readable content could be extracted from this PDF.");
     return document;
