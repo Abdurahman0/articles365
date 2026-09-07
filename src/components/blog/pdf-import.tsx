@@ -1,35 +1,22 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { FileText, Loader2, UploadCloud, X } from "lucide-react";
-import { blogsApi } from "@/services/blogs.api";
+import { parsePdfInBrowser } from "@/lib/pdf-client";
 import type { BlogDocument } from "@/types/blog";
 import { cn } from "@/lib/utils";
 
-const MAX_MB = 30;
-// deterministic (non-AI) processing stages shown while the server parses
-const STAGES = [
-  "Uploading PDF…",
-  "Extracting text…",
-  "Analyzing document layout…",
-  "Detecting headings & columns…",
-  "Extracting images…",
-  "Building article…",
-];
+const MAX_MB = 100; // parsed in the browser, so no serverless upload limit applies
 
 const fmtSize = (b: number) => (b < 1024 * 1024 ? `${(b / 1024).toFixed(0)} KB` : `${(b / 1024 / 1024).toFixed(1)} MB`);
 
 export function PdfImport({ onImported }: { onImported: (doc: BlogDocument, file: File) => void }) {
   const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
-  const [uploadPct, setUploadPct] = useState(0);
-  const [stage, setStage] = useState(0);
+  const [stageText, setStageText] = useState("Reading file…");
   const [error, setError] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
-  const stageTimer = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  useEffect(() => () => { if (stageTimer.current) clearInterval(stageTimer.current); }, []);
 
   const validate = (f: File): string | null => {
     if (!/\.pdf$/i.test(f.name) && f.type !== "application/pdf") return "Please choose a .pdf file.";
@@ -41,22 +28,16 @@ export function PdfImport({ onImported }: { onImported: (doc: BlogDocument, file
   const run = useCallback(async (f: File) => {
     const err = validate(f);
     if (err) { setError(err); return; }
-    setError(null); setFile(f); setBusy(true); setUploadPct(0); setStage(0);
+    setError(null); setFile(f); setBusy(true); setStageText("Reading file…");
     try {
-      const doc = await blogsApi.importPdf(f, (p) => {
-        setUploadPct(p.percent);
-        if (p.stage === "processing" && !stageTimer.current) {
-          setStage(1);
-          stageTimer.current = setInterval(() => setStage((s) => Math.min(s + 1, STAGES.length - 1)), 900);
-        }
-      });
+      // parsed entirely in the browser — the raw PDF is never uploaded
+      const doc = await parsePdfInBrowser(f, setStageText);
       onImported(doc, f);
     } catch (e) {
       setError((e as Error).message || "Could not convert this PDF.");
       setFile(null);
     } finally {
       setBusy(false);
-      if (stageTimer.current) { clearInterval(stageTimer.current); stageTimer.current = null; }
     }
   }, [onImported]);
 
@@ -95,7 +76,7 @@ export function PdfImport({ onImported }: { onImported: (doc: BlogDocument, file
             <span className="mt-3 inline-flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-2 text-sm font-semibold">
               <FileText className="size-4" /> Choose PDF
             </span>
-            <p className="mt-4 text-xs text-muted-foreground">Up to {MAX_MB} MB · parsed locally, no AI</p>
+            <p className="mt-4 text-xs text-muted-foreground">Parsed locally in your browser — no AI, no upload</p>
           </>
         ) : (
           <div className="w-full max-w-sm">
@@ -107,12 +88,11 @@ export function PdfImport({ onImported }: { onImported: (doc: BlogDocument, file
               </div>
             </div>
             <div className="mt-4 h-1.5 w-full overflow-hidden rounded-full bg-secondary">
-              <div className="h-full rounded-full bg-primary transition-all"
-                style={{ width: uploadPct < 100 ? `${uploadPct}%` : "100%" }} />
+              <div className="h-full w-1/3 animate-pulse rounded-full bg-primary" />
             </div>
             <p className="mt-3 flex items-center justify-center gap-2 text-sm text-muted-foreground">
               <Loader2 className="size-4 animate-spin text-primary" />
-              {uploadPct < 100 ? `${STAGES[0]} ${uploadPct}%` : STAGES[stage]}
+              {stageText}
             </p>
           </div>
         )}

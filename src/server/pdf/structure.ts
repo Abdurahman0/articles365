@@ -9,9 +9,8 @@
 // Signals used: font size, ALL-CAPS ratio, text length, vertical gaps,
 // horizontal position/column, bullet/number/letter markers, drop caps.
 
-import "server-only";
 import type { BlogBlock, BlogDocument, PdfTextItem, QuizQuestion } from "@/types/blog";
-import type { PdfExtract, PdfPage } from "./extract";
+import type { PdfExtract, PdfPage } from "@/lib/pdf-core";
 
 let _seq = 0;
 const bid = () => `blk_${(_seq++).toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
