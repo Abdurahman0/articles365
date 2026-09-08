@@ -7,12 +7,12 @@ import { Loader2 } from "lucide-react";
 import { getBookById } from "@/data/catalog";
 import { Button } from "@/components/ui/button";
 
-const PdfBookReader = dynamic(
-  () => import("@/components/reader/pdf-book-reader").then((m) => m.PdfBookReader),
+const IssueArticle = dynamic(
+  () => import("@/components/reader/issue-article").then((m) => m.IssueArticle),
   {
     ssr: false,
     loading: () => (
-      <div className="reader-desk grid min-h-dvh place-items-center">
+      <div className="grid min-h-dvh place-items-center bg-background">
         <Loader2 className="size-7 animate-spin text-primary" />
       </div>
     ),
@@ -35,5 +35,5 @@ export default function ReaderPage({ params }: { params: Promise<{ bookId: strin
     );
   }
 
-  return <PdfBookReader pdfUrl={book.pdf} title={book.title} storageKey={book.id} />;
+  return <IssueArticle pdfUrl={book.pdf} title={book.title} />;
 }
