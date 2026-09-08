@@ -5,37 +5,45 @@ import Link from "next/link";
 import { ChevronLeft } from "lucide-react";
 import { getBookById } from "@/data/catalog";
 import { Button } from "@/components/ui/button";
+import { SiteHeader } from "@/components/layout/site-header";
+import { SiteFooter } from "@/components/layout/site-footer";
 
 export default function ReaderPage({ params }: { params: Promise<{ bookId: string }> }) {
   const { bookId } = use(params);
   const book = getBookById(bookId);
 
-  if (!book?.pdf) {
-    return (
-      <div className="grid min-h-dvh place-items-center px-4 text-center">
-        <div>
-          <p className="text-lg font-semibold">This book isn&apos;t available to read yet.</p>
-          <p className="mt-1 text-sm text-muted-foreground">Only the featured issue is readable in this demo.</p>
-          <Button asChild className="mt-6"><Link href="/books">Back to books</Link></Button>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="fixed inset-0 flex flex-col bg-background">
-      <header className="z-10 flex h-12 items-center gap-2 border-b border-border bg-card px-3">
-        <Link href="/books" aria-label="Back to books" className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-sm text-muted-foreground hover:bg-secondary hover:text-foreground">
-          <ChevronLeft className="size-4" /> Books
-        </Link>
-        <span className="min-w-0 flex-1 truncate text-sm font-medium">{book.title}</span>
-      </header>
-      {/* the actual PDF, rendered by the browser's built-in viewer inside the site */}
-      <iframe
-        src={`${book.pdf}#view=FitH`}
-        title={book.title}
-        className="min-h-0 flex-1 border-0"
-      />
+    <div className="flex min-h-dvh flex-col">
+      <SiteHeader />
+      <main className="flex-1">
+        {!book?.pdf ? (
+          <div className="grid min-h-[60vh] place-items-center px-4 text-center">
+            <div>
+              <p className="text-lg font-semibold">This book isn&apos;t available to read yet.</p>
+              <p className="mt-1 text-sm text-muted-foreground">Only the featured issue is readable in this demo.</p>
+              <Button asChild className="mt-6"><Link href="/books">Back to books</Link></Button>
+            </div>
+          </div>
+        ) : (
+          <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6">
+            <Link href="/books" className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
+              <ChevronLeft className="size-4" /> Books
+            </Link>
+            <h1 className="mt-3 text-2xl font-semibold tracking-tight sm:text-3xl">{book.title}</h1>
+            <p className="mt-1 text-sm text-muted-foreground">{book.author} · {book.pageCount} pages</p>
+
+            {/* the real PDF, embedded in the site with the browser's full viewer */}
+            <div className="mt-5 overflow-hidden rounded-2xl border border-border bg-card shadow-[var(--shadow-soft)]">
+              <iframe
+                src={`${book.pdf}#view=FitH`}
+                title={book.title}
+                className="h-[82vh] w-full border-0"
+              />
+            </div>
+          </div>
+        )}
+      </main>
+      <SiteFooter />
     </div>
   );
 }
