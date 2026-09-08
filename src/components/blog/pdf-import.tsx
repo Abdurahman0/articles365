@@ -10,7 +10,7 @@ const MAX_MB = 100; // parsed in the browser, so no serverless upload limit appl
 
 const fmtSize = (b: number) => (b < 1024 * 1024 ? `${(b / 1024).toFixed(0)} KB` : `${(b / 1024 / 1024).toFixed(1)} MB`);
 
-export function PdfImport({ onImported }: { onImported: (doc: BlogDocument, file: File) => void }) {
+export function PdfImport({ onImported }: { onImported: (doc: BlogDocument, images: string[], file: File) => void }) {
   const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
   const [stageText, setStageText] = useState("Reading file…");
@@ -31,8 +31,8 @@ export function PdfImport({ onImported }: { onImported: (doc: BlogDocument, file
     setError(null); setFile(f); setBusy(true); setStageText("Reading file…");
     try {
       // parsed entirely in the browser — the raw PDF is never uploaded
-      const doc = await parsePdfInBrowser(f, setStageText);
-      onImported(doc, f);
+      const { document, images } = await parsePdfInBrowser(f, setStageText);
+      onImported(document, images, f);
     } catch (e) {
       setError((e as Error).message || "Could not convert this PDF.");
       setFile(null);

@@ -35,8 +35,8 @@ const TYPE_LABEL: Record<BlogBlockType, string> = {
 const field = "w-full rounded-xl border border-border bg-card px-3 py-2 text-sm outline-none focus:border-primary/50";
 
 export function BlogEditor({
-  initial, blogId, initialStatus = "draft",
-}: { initial: BlogDocument; blogId?: string; initialStatus?: BlogStatus }) {
+  initial, blogId, initialStatus = "draft", pdfImages = [],
+}: { initial: BlogDocument; blogId?: string; initialStatus?: BlogStatus; pdfImages?: string[] }) {
   const router = useRouter();
   const [doc, setDoc] = useState<BlogDocument>(initial);
   const [tab, setTab] = useState<"edit" | "preview">("edit");
@@ -44,6 +44,7 @@ export function BlogEditor({
   const [error, setError] = useState<string | null>(null);
   const [savedStatus, setSavedStatus] = useState<BlogStatus>(initialStatus);
   const [id, setId] = useState<string | undefined>(blogId);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const setMeta = (patch: Partial<BlogDocument>) => setDoc((d) => ({ ...d, ...patch }));
   const setBlocks = (blocks: BlogBlock[]) => setDoc((d) => ({ ...d, blocks }));
@@ -60,6 +61,21 @@ export function BlogEditor({
     setBlocks(next);
   };
   const addBlock = (type: BlogBlockType) => setBlocks([...doc.blocks, NEW_BLOCK[type]()]);
+
+  // insert a PDF image as an image block right after the selected block
+  // (or at the end if nothing is selected), then keep it selected so repeated
+  // inserts stack in order.
+  const insertImage = (url: string) => {
+    const block: BlogBlock = { id: nid(), type: "image", url };
+    setDoc((d) => {
+      const idx = d.blocks.findIndex((b) => b.id === selectedId);
+      const at = idx >= 0 ? idx + 1 : d.blocks.length;
+      const next = d.blocks.slice();
+      next.splice(at, 0, block);
+      return { ...d, blocks: next };
+    });
+    setSelectedId(block.id);
+  };
 
   const save = async (status: BlogStatus) => {
     setSaving(status); setError(null);
@@ -117,10 +133,40 @@ export function BlogEditor({
               </div>
             </section>
 
+            {pdfImages.length > 0 && (
+              <section className="rounded-2xl border border-border bg-card p-4">
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-sm font-semibold">
+                    Images from PDF <span className="text-xs font-normal text-muted-foreground">({pdfImages.length})</span>
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {selectedId ? "Insert drops it below the selected block" : "Select a block below, then Insert"}
+                  </p>
+                </div>
+                <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+                  {pdfImages.map((url, i) => (
+                    <div key={i} className="group relative overflow-hidden rounded-lg border border-border bg-secondary/40">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={url} alt="" className="aspect-square w-full object-cover" />
+                      {doc.coverImage === url && (
+                        <span className="absolute left-1 top-1 rounded bg-primary px-1.5 py-0.5 text-[10px] font-semibold text-primary-foreground">Cover</span>
+                      )}
+                      <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-black/55 opacity-0 transition-opacity group-hover:opacity-100">
+                        <button onClick={() => insertImage(url)} className="rounded-md bg-primary px-2.5 py-1 text-[11px] font-semibold text-primary-foreground">Insert</button>
+                        <button onClick={() => setMeta({ coverImage: url })} className="rounded-md bg-white/90 px-2.5 py-1 text-[11px] font-semibold text-black">Set cover</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+
             <div className="space-y-3">
               {doc.blocks.map((b, i) => (
                 <BlockCard
                   key={b.id} block={b} index={i} total={doc.blocks.length}
+                  selected={selectedId === b.id}
+                  onSelect={() => setSelectedId(b.id)}
                   onChange={(patch) => updateBlock(b.id, patch)}
                   onMove={(dir) => moveBlock(b.id, dir)}
                   onRemove={() => removeBlock(b.id)}
@@ -159,18 +205,24 @@ function Labeled({ label, children }: { label: string; children: React.ReactNode
 }
 
 function BlockCard({
-  block, index, total, onChange, onMove, onRemove,
+  block, index, total, selected, onSelect, onChange, onMove, onRemove,
 }: {
   block: BlogBlock; index: number; total: number;
+  selected: boolean;
+  onSelect: () => void;
   onChange: (patch: Partial<BlogBlock>) => void;
   onMove: (dir: -1 | 1) => void;
   onRemove: () => void;
 }) {
   const area = "w-full rounded-xl border border-border bg-card px-3 py-2 text-sm outline-none focus:border-primary/50 resize-y";
   return (
-    <div className="rounded-2xl border border-border bg-card/60 p-3">
+    <div
+      onClick={onSelect}
+      className={cn("rounded-2xl border bg-card/60 p-3 transition-colors", selected ? "border-primary ring-1 ring-primary/40" : "border-border")}
+    >
       <div className="mb-2 flex items-center gap-2">
         <span className="rounded-md bg-secondary px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{TYPE_LABEL[block.type]}</span>
+        {selected && <span className="text-[11px] font-medium text-primary">selected</span>}
         <div className="ml-auto flex items-center gap-1">
           <IconBtn label="Move up" disabled={index === 0} onClick={() => onMove(-1)}><ArrowUp className="size-4" /></IconBtn>
           <IconBtn label="Move down" disabled={index === total - 1} onClick={() => onMove(1)}><ArrowDown className="size-4" /></IconBtn>

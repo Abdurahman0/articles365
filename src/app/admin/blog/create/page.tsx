@@ -8,9 +8,9 @@ import { BlogEditor } from "@/components/blog/blog-editor";
 import type { BlogDocument } from "@/types/blog";
 
 export default function CreateBlogPage() {
-  const [doc, setDoc] = useState<BlogDocument | null>(null);
+  const [parsed, setParsed] = useState<{ doc: BlogDocument; images: string[] } | null>(null);
 
-  if (doc) return <BlogEditor initial={doc} initialStatus="draft" />;
+  if (parsed) return <BlogEditor initial={parsed.doc} pdfImages={parsed.images} initialStatus="draft" />;
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-10 sm:px-6">
@@ -25,7 +25,7 @@ export default function CreateBlogPage() {
         </p>
       </div>
       <div className="mt-8">
-        <PdfImport onImported={(d) => setDoc(d)} />
+        <PdfImport onImported={(doc, images) => setParsed({ doc, images })} />
       </div>
     </div>
   );

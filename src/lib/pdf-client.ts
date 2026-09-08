@@ -7,7 +7,7 @@
 import * as pdfjsLib from "pdfjs-dist";
 import { mapTextItems, type PdfExtract, type PdfPage, type RawTextItem } from "@/lib/pdf-core";
 import { buildBlogDocument } from "@/server/pdf/structure";
-import type { BlogBlock, BlogDocument } from "@/types/blog";
+import type { BlogDocument } from "@/types/blog";
 
 let workerReady = false;
 function ensureWorker() {
@@ -15,7 +15,7 @@ function ensureWorker() {
 }
 
 // ---- image extraction (client, via canvas) --------------------------------
-const IMG_MAX_W = 800, IMG_MIN_DRAWN = 70, IMG_MIN_SRC = 90, IMG_MAX = 6;
+const IMG_MAX_W = 900, IMG_MIN_DRAWN = 60, IMG_MIN_SRC = 80, IMG_MAX = 40;
 const yield0 = () => new Promise((r) => setTimeout(r, 0));
 type M = [number, number, number, number, number, number];
 const mul = (a: M, b: M): M => [
@@ -88,7 +88,7 @@ interface ClientImage { page: number; y: number; drawnW: number; drawnH: number;
 async function extractImages(doc: any): Promise<ClientImage[]> {
   const OPS = pdfjsLib.OPS;
   const results: ClientImage[] = [];
-  const deadline = performance.now() + 12000; // hard budget so parsing never hangs
+  const deadline = performance.now() + 20000; // hard budget so parsing never hangs
   for (let p = 1; p <= doc.numPages && results.length < IMG_MAX; p++) {
     if (performance.now() > deadline) break;
     try {
@@ -127,24 +127,11 @@ async function extractImages(doc: any): Promise<ClientImage[]> {
   return results;
 }
 
-function placeImages(doc: BlogDocument, images: ClientImage[]) {
-  if (!images.length) return;
-  const sorted = [...images].sort((a, b) => b.drawnW * b.drawnH - a.drawnW * a.drawnH);
-  doc.coverImage = sorted[0].url;
-  const rest = sorted.slice(1).sort((a, b) => a.page - b.page || a.y - b.y);
-  if (!rest.length) return;
-  const mk = (url: string): BlogBlock => ({ id: `img_${Math.random().toString(36).slice(2, 9)}`, type: "image", url });
-  const paraIdx = doc.blocks.map((b, i) => (b.type === "paragraph" ? i : -1)).filter((i) => i >= 0);
-  if (!paraIdx.length) { rest.forEach((img) => doc.blocks.push(mk(img.url))); return; }
-  const step = Math.max(1, Math.floor(paraIdx.length / (rest.length + 1)));
-  rest
-    .map((img, n) => ({ at: paraIdx[Math.min(paraIdx.length - 1, step * (n + 1))], block: mk(img.url) }))
-    .sort((a, b) => b.at - a.at)
-    .forEach(({ at, block }) => doc.blocks.splice(at + 1, 0, block));
-}
 
 // ---- public entry ---------------------------------------------------------
-export async function parsePdfInBrowser(file: File, onStage?: (s: string) => void): Promise<BlogDocument> {
+export interface ParsedPdf { document: BlogDocument; images: string[] }
+
+export async function parsePdfInBrowser(file: File, onStage?: (s: string) => void): Promise<ParsedPdf> {
   ensureWorker();
   onStage?.("Reading file…");
   const buf = new Uint8Array(await file.arrayBuffer());
@@ -184,18 +171,22 @@ export async function parsePdfInBrowser(file: File, onStage?: (s: string) => voi
     const document = buildBlogDocument({ pageCount: doc.numPages, meta, pages }, file.name);
 
     onStage?.("Extracting images…");
+    let images: string[] = [];
     try {
-      // hard cap the whole image pass — a slow render() await can't be
-      // interrupted internally, so race it so parsing always finishes
+      // hard cap the whole image pass so parsing always finishes
       const imgs = await Promise.race<ClientImage[]>([
         extractImages(doc),
-        new Promise<ClientImage[]>((r) => setTimeout(() => r([]), 16000)),
+        new Promise<ClientImage[]>((r) => setTimeout(() => r([]), 22000)),
       ]);
-      placeImages(document, imgs);
+      // hand every image to the editor in reading order (page, top→bottom) so
+      // the admin can insert each one wherever they want; no auto-placement.
+      images = [...imgs].sort((a, b) => a.page - b.page || a.y - b.y).map((i) => i.url);
+      const largest = [...imgs].sort((a, b) => b.drawnW * b.drawnH - a.drawnW * a.drawnH)[0];
+      if (largest) document.coverImage = largest.url; // sensible default cover; editable
     } catch { /* images best-effort */ }
 
     if (!document.blocks.length) throw new Error("No readable content could be extracted from this PDF.");
-    return document;
+    return { document, images };
   } finally {
     try { await (doc as unknown as { destroy(): Promise<void> }).destroy(); } catch { /* ignore */ }
   }
