@@ -16,6 +16,25 @@ const COLORS = ["#ffd23f", "#f472b6", "#4ade80", "#60a5fa"];
 let hid = 0;
 const hlId = () => `h${Date.now().toString(36)}${hid++}`;
 const clamp01 = (n: number) => Math.min(1, Math.max(0, n));
+
+// sample the page's dominant background colour from its edges, so the frame /
+// gaps around the pages match the PDF instead of showing white.
+function sampleBg(canvas: HTMLCanvasElement): string | null {
+  try {
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    const W = canvas.width, H = canvas.height;
+    const pts: [number, number][] = [
+      [2, 2], [W - 3, 2], [2, H - 3], [W - 3, H - 3],
+      [W >> 1, 2], [W >> 1, H - 3], [2, H >> 1], [W - 3, H >> 1],
+    ];
+    const counts: Record<string, number> = {};
+    for (const [x, y] of pts) { const d = ctx.getImageData(x, y, 1, 1).data; const c = `${d[0]},${d[1]},${d[2]}`; counts[c] = (counts[c] ?? 0) + 1; }
+    let best = "", bn = 0;
+    for (const c in counts) if (counts[c] > bn) { bn = counts[c]; best = c; }
+    return best ? `rgb(${best})` : null;
+  } catch { return null; }
+}
 // overlap ratio of `a` covered by existing highlight `h`
 const covered = (a: Omit<Hl, "id" | "color">, h: Hl) => {
   const ix = Math.max(0, Math.min(a.x + a.w, h.x + h.w) - Math.max(a.x, h.x));
@@ -32,6 +51,7 @@ export function IssuePages({ pdfUrl, storageKey }: { pdfUrl: string; storageKey:
   const [markMode, setMarkMode] = useState(false);
   const [color, setColor] = useState(COLORS[0]);
   const [marks, setMarks] = useState<Marks>({});
+  const [bgColor, setBgColor] = useState<string | null>(null);
 
   const canvases = useRef<Map<number, HTMLCanvasElement>>(new Map());
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -97,6 +117,7 @@ export function IssuePages({ pdfUrl, storageKey }: { pdfUrl: string; storageKey:
           canvas.height = Math.floor(vp.height);
           const ctx = canvas.getContext("2d");
           if (ctx) await page.render({ canvas, canvasContext: ctx, viewport: vp }).promise;
+          if (p === 1) { const bg = sampleBg(canvas); if (bg && !cancelled) setBgColor(bg); }
           await renderText(p);
           if (!cancelled) setDone((d) => Math.max(d, p));
         }
@@ -206,9 +227,11 @@ export function IssuePages({ pdfUrl, storageKey }: { pdfUrl: string; storageKey:
       )}
 
       {/* pages, stacked edge-to-edge (1 or 2 across) */}
-      <div className={cn("mx-auto grid w-full overflow-hidden rounded-2xl border border-border bg-white shadow-[var(--shadow-soft)]",
-        markMode && "hl",
-        cols === 2 ? "max-w-[1400px] grid-cols-2" : "max-w-[900px] grid-cols-1")}>
+      <div
+        style={{ background: bgColor ?? "#ffffff" }}
+        className={cn("mx-auto grid w-full overflow-hidden rounded-2xl border border-border shadow-[var(--shadow-soft)]",
+          markMode && "hl",
+          cols === 2 ? "max-w-[1400px] grid-cols-2" : "max-w-[900px] grid-cols-1")}>
         {pages.map((p) => (
           <div key={p} data-page={p} className={cn("page-pdf relative", markMode && "cursor-text")}>
             <canvas
