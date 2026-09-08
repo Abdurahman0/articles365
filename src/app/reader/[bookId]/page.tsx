@@ -40,7 +40,7 @@ export default function ReaderPage({ params }: { params: Promise<{ bookId: strin
 
             {/* every PDF page rendered as an image, stacked edge-to-edge */}
             <div className="mt-5">
-              <IssuePages pdfUrl={book.pdf} />
+              <IssuePages pdfUrl={book.pdf} storageKey={book.id} />
             </div>
           </div>
         )}
