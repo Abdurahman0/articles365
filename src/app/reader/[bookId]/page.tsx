@@ -2,11 +2,17 @@
 
 import { use } from "react";
 import Link from "next/link";
-import { ChevronLeft } from "lucide-react";
+import dynamic from "next/dynamic";
+import { ChevronLeft, Loader2 } from "lucide-react";
 import { getBookById } from "@/data/catalog";
 import { Button } from "@/components/ui/button";
 import { SiteHeader } from "@/components/layout/site-header";
 import { SiteFooter } from "@/components/layout/site-footer";
+
+const IssuePages = dynamic(
+  () => import("@/components/reader/issue-pages").then((m) => m.IssuePages),
+  { ssr: false, loading: () => <div className="grid min-h-[50vh] place-items-center"><Loader2 className="size-7 animate-spin text-primary" /></div> }
+);
 
 export default function ReaderPage({ params }: { params: Promise<{ bookId: string }> }) {
   const { bookId } = use(params);
@@ -32,13 +38,9 @@ export default function ReaderPage({ params }: { params: Promise<{ bookId: strin
             <h1 className="mt-3 text-2xl font-semibold tracking-tight sm:text-3xl">{book.title}</h1>
             <p className="mt-1 text-sm text-muted-foreground">{book.author} · {book.pageCount} pages</p>
 
-            {/* the real PDF, embedded in the site with the browser's full viewer */}
-            <div className="mt-5 overflow-hidden rounded-2xl border border-border bg-card shadow-[var(--shadow-soft)]">
-              <iframe
-                src={`${book.pdf}#view=FitH`}
-                title={book.title}
-                className="h-[82vh] w-full border-0"
-              />
+            {/* every PDF page rendered as an image, stacked edge-to-edge */}
+            <div className="mt-5">
+              <IssuePages pdfUrl={book.pdf} />
             </div>
           </div>
         )}
