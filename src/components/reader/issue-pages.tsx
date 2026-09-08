@@ -112,8 +112,8 @@ export function IssuePages({ pdfUrl, storageKey }: { pdfUrl: string; storageKey:
 
   return (
     <div>
-      {/* toolbar */}
-      <div className="sticky top-0 z-10 mb-4 flex flex-wrap items-center gap-2 rounded-2xl border border-border bg-card/90 px-3 py-2 backdrop-blur">
+      {/* toolbar — pinned as a bar right under the site header while scrolling */}
+      <div className="sticky top-16 z-30 -mx-4 mb-4 flex flex-wrap items-center gap-2 border-b border-border bg-background/95 px-4 py-2.5 shadow-sm backdrop-blur sm:-mx-6 sm:px-6">
         <div className="flex rounded-xl border border-border p-0.5">
           <button onClick={() => setCols(1)} className={cn("flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium", cols === 1 && "bg-secondary")}>
             <Square className="size-3.5" /> 1 page
